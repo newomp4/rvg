@@ -198,6 +198,62 @@ def ease_out_quart(p: float) -> float:
     return 1.0 - (1.0 - p) ** 4
 
 
+def circle_mask_image(img: Image.Image, size: int) -> Image.Image:
+    """Resize `img` to size×size and apply a circular alpha mask. Uses 4×
+    supersampling on the mask edge to keep the circle's perimeter clean."""
+    src = img.convert("RGBA").resize((size, size), Image.LANCZOS)
+    SS = 4
+    big = Image.new("L", (size * SS, size * SS), 0)
+    ImageDraw.Draw(big).ellipse((0, 0, size * SS - 1, size * SS - 1), fill=255)
+    mask = big.resize((size, size), Image.LANCZOS)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    out.paste(src, (0, 0), mask)
+    return out
+
+
+def draw_verified_badge(canvas: Image.Image, cx: int, cy: int, size: int,
+                        fill: str = "#1d9bf0",
+                        check_color: tuple[int, int, int, int] = (255, 255, 255, 255)) -> None:
+    """Draw a clean Twitter/X-style verified badge — an 8-petal scalloped
+    circle with a white checkmark inside. Drawn at 4× supersampling and
+    downscaled, so the petal edges and check stroke stay crisp at any size.
+
+    `size` is the OUTER radius of the petal tips in target pixels."""
+    import math
+    SS = 4
+    canvas_size = size * 2 + 4
+    big = Image.new("RGBA", (canvas_size * SS, canvas_size * SS), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(big)
+    big_cx, big_cy = canvas_size * SS // 2, canvas_size * SS // 2
+    # Scalloped burst: r oscillates between r_inner and r_outer over 8 petals.
+    r_outer = size * SS
+    r_inner = r_outer * 0.86          # how deep the scallops cut
+    n_petals = 8
+    # Phase offset so a petal points "up" — small visual nicety.
+    phase = math.pi / n_petals
+    samples = 720
+    points: list[tuple[float, float]] = []
+    for i in range(samples):
+        theta = (i / samples) * 2 * math.pi
+        bump = (math.cos((theta + phase) * n_petals) + 1) / 2  # 0..1
+        r = r_inner + (r_outer - r_inner) * bump
+        points.append((big_cx + r * math.cos(theta),
+                       big_cy + r * math.sin(theta)))
+    bd.polygon(points, fill=fill)
+    # White checkmark — three points: bottom-left, valley, top-right.
+    cs = size * SS
+    p1 = (big_cx - 0.40 * cs, big_cy + 0.02 * cs)
+    p2 = (big_cx - 0.05 * cs, big_cy + 0.32 * cs)
+    p3 = (big_cx + 0.42 * cs, big_cy - 0.30 * cs)
+    bd.line([p1, p2, p3], fill=check_color, width=int(0.18 * cs), joint="curve")
+    # Round end caps for the checkmark — draw a circle at each anchor.
+    for px, py in (p1, p2, p3):
+        rr = int(0.09 * cs)
+        bd.ellipse((px - rr, py - rr, px + rr, py + rr), fill=check_color)
+    small = big.resize((canvas_size, canvas_size), Image.LANCZOS)
+    canvas.alpha_composite(small, (cx - canvas_size // 2, cy - canvas_size // 2))
+
+
 def draw_heart_outline(canvas: Image.Image, cx: int, cy: int, size: int,
                        color: tuple[int, int, int, int], stroke: int = 4) -> None:
     """Smooth heart outline using the parametric heart curve

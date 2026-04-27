@@ -1,7 +1,7 @@
 {
-  "display_name": "Stories & Texts",
+  "renderer": "storiesandtexts",
+  "display_name": "storiesandtexts",
   "handle": "@storiesandtexts",
-  "username": "AskReddit",
   "verified": true,
-  "renderer": "storiesandtexts"
+  "profile_picture": "profile.jpg"
 }
