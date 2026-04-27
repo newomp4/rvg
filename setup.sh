@@ -51,4 +51,18 @@ if [ ! -x "$ROOT/bin/ffprobe" ]; then
   rm -rf "$TMP"
 fi
 
+# Inter font (used in title cards). OFL-licensed, free to redistribute.
+if [ ! -f "$ROOT/assets/fonts/Inter-Bold.ttf" ]; then
+  echo ">> downloading Inter font into ./assets/fonts/"
+  mkdir -p "$ROOT/assets/fonts"
+  TMP="$(mktemp -d)"
+  curl -fsSL -o "$TMP/inter.zip" "https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip"
+  unzip -q -o "$TMP/inter.zip" -d "$TMP/inter"
+  for f in Inter-Bold.ttf Inter-Regular.ttf Inter-SemiBold.ttf; do
+    cp "$TMP/inter/extras/ttf/$f" "$ROOT/assets/fonts/$f"
+  done
+  cp "$TMP/inter/LICENSE.txt" "$ROOT/assets/fonts/Inter-LICENSE.txt"
+  rm -rf "$TMP"
+fi
+
 echo ">> done. launch with: ./run.sh"
