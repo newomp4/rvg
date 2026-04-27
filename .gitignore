@@ -1,0 +1,26 @@
+.venv/
+bin/ffmpeg
+bin/ffprobe
+# user's personal reference material — not part of the codebase
+High performing yt story scripts*.md
+settings.json
+__pycache__/
+*.pyc
+.DS_Store
+output/*
+!output/.gitkeep
+tmp/*
+!tmp/.gitkeep
+logs/*
+!logs/.gitkeep
+clips/*
+!clips/.gitkeep
+assets/*
+!assets/.gitkeep
+channels/*/render/
+*.mov
+*.mp4
+*.mp3
+*.wav
+!channels/**/template.mov
+.claude/

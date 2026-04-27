@@ -1,0 +1,134 @@
+"""Silence removal using auto-editor + word-timing remap.
+
+auto-editor analyzes the audio and decides which segments to keep based on
+loudness. We use it on the TTS audio, get a trimmed file, AND a JSON
+timeline that tells us exactly which segments of the original were kept.
+We then walk the original word timings and rewrite them onto the trimmed
+timeline, dropping any words that fell entirely inside a cut.
+
+The timeline export from auto-editor v23+ uses the v3 schema; we read its
+`v3` block which contains `timebase` and per-track lists of `[start, dur, src]`
+where start/dur are in timebase units and `src` is `[file_index, src_start]`.
+"""
+from __future__ import annotations
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List
+import json
+import subprocess
+import sys
+
+from app.pipeline.tts import TimedWord
+from app.config import FFMPEG, TMP_DIR
+
+
+@dataclass
+class KeptSegment:
+    src_start: float     # seconds in original audio
+    src_end: float
+    out_start: float     # seconds in trimmed audio
+    out_end: float
+
+
+def _auto_editor_timeline(audio_in: Path, v3_out: Path) -> None:
+    """Ask auto-editor to dump a v3 JSON timeline (no media output).
+    Note: auto-editor v29 needs the output file to end in .v3 for the v3
+    exporter, regardless of contents (the file is JSON)."""
+    if v3_out.suffix != ".v3":
+        v3_out = v3_out.with_suffix(".v3")
+    cmd = [
+        sys.executable, "-m", "auto_editor",
+        str(audio_in),
+        "--export", "v3",
+        "-o", str(v3_out),
+        "--no-open",
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def _auto_editor_render(audio_in: Path, audio_out: Path) -> None:
+    """Render the trimmed audio."""
+    cmd = [
+        sys.executable, "-m", "auto_editor",
+        str(audio_in),
+        "-o", str(audio_out),
+        "--no-open",
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def _parse_timeline(v3_path: Path) -> tuple[float, list[KeptSegment]]:
+    """Parse auto-editor's v3 JSON timeline. Returns (timebase, kept segments).
+
+    v29 v3 schema (top-level JSON):
+        {"version":"3","timebase":"30/1","resolution":[w,h],"samplerate":N,
+         "v":[...], "a":[ [ {clip}, {clip}, ... ] ]}
+    Each clip dict has start/dur/offset (in timebase units) and optional speed.
+    """
+    data = json.loads(Path(v3_path).read_text())
+    tb = data.get("timebase", "30/1")
+    if isinstance(tb, str) and "/" in tb:
+        n, d = tb.split("/")
+        timebase = float(n) / float(d)
+    elif isinstance(tb, list):
+        timebase = float(tb[0]) / float(tb[1])
+    else:
+        timebase = float(tb)
+
+    tracks = data.get("a") or []
+    if not tracks:
+        raise RuntimeError("auto-editor timeline has no audio tracks")
+    clips = tracks[0]
+
+    kept: list[KeptSegment] = []
+    for clip in clips:
+        if isinstance(clip, dict):
+            start_o = float(clip["start"])
+            dur     = float(clip["dur"])
+            src_o   = float(clip["offset"])
+            speed   = float(clip.get("speed", 1.0))
+        else:
+            start_o, dur, src_o = float(clip[0]), float(clip[1]), float(clip[2])
+            speed = 1.0
+        if speed != 1.0:
+            continue                        # cut region, skip
+        src_start = src_o / timebase
+        src_end   = (src_o + dur) / timebase
+        out_start = start_o / timebase
+        out_end   = (start_o + dur) / timebase
+        kept.append(KeptSegment(src_start, src_end, out_start, out_end))
+
+    kept.sort(key=lambda k: k.src_start)
+    return timebase, kept
+
+
+def remove_silences(audio_in: Path, words: list[TimedWord], work_dir: Path) -> tuple[Path, list[TimedWord]]:
+    """Run auto-editor, return (trimmed audio path, remapped word timings).
+
+    Words that fall entirely inside a cut region are dropped. Words that span
+    a cut boundary get their times clamped — rare, since silences split words.
+    """
+    work_dir.mkdir(parents=True, exist_ok=True)
+    timeline_v3 = work_dir / "ae_timeline.v3"
+    audio_out   = work_dir / "speech_trimmed.wav"
+
+    _auto_editor_timeline(audio_in, timeline_v3)
+    _auto_editor_render(audio_in, audio_out)
+    _, kept = _parse_timeline(timeline_v3)
+
+    new_words: list[TimedWord] = []
+    for w in words:
+        # find a kept segment containing the word's center
+        center = (w.start + w.end) / 2
+        seg = next((k for k in kept if k.src_start <= center <= k.src_end), None)
+        if seg is None:
+            continue
+        # clamp to segment, then map to output timeline
+        s = max(w.start, seg.src_start)
+        e = min(w.end,   seg.src_end)
+        new_start = seg.out_start + (s - seg.src_start)
+        new_end   = seg.out_start + (e - seg.src_start)
+        if new_end > new_start:
+            new_words.append(TimedWord(text=w.text, start=new_start, end=new_end))
+
+    return audio_out, new_words
