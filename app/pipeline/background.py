@@ -44,6 +44,24 @@ def _extract_segment(clip: Path, start: float, dur: float, out: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
+def _solid_background(target_duration: float, work_dir: Path,
+                      color: str = "black") -> Path:
+    """Single ffmpeg call that produces a solid-color background — used when
+    no clips are available, mostly for fast iteration during render testing."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out = work_dir / "background.mp4"
+    cmd = [
+        str(FFMPEG), "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi",
+        "-i", f"color=c={color}:s={OUTPUT_W}x{OUTPUT_H}:r={OUTPUT_FPS}:d={target_duration:.3f}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p",
+        str(out),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    return out
+
+
 def build_background(
     clips_dir: Path,
     target_duration: float,
@@ -52,11 +70,13 @@ def build_background(
     seg_max: float = 8.0,
     seed: int | None = None,
 ) -> Path:
-    """Build the background video. Returns path to the stitched .mp4."""
+    """Build the background video. Returns path to the stitched .mp4. When
+    `clips_dir` is empty/missing, falls back to a solid black background so
+    rendering still works (faster too, useful for testing the foreground)."""
     rng = random.Random(seed)
     clips = list_clips(clips_dir)
     if not clips:
-        raise RuntimeError(f"no video clips found in {clips_dir}")
+        return _solid_background(target_duration, work_dir)
 
     work_dir.mkdir(parents=True, exist_ok=True)
     seg_dir = work_dir / "bg_segs"
