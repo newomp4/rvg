@@ -1,4 +1,5 @@
 .venv/
+models/
 bin/ffmpeg
 bin/ffprobe
 # user's personal reference material — not part of the codebase

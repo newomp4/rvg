@@ -11,6 +11,12 @@ if ! command -v "$PY" >/dev/null 2>&1; then PY="python3"; fi
 
 echo ">> using $($PY --version) at $(command -v "$PY")"
 
+# Keep all model weights inside the project folder so deleting the folder
+# really does remove everything. HuggingFace libraries respect HF_HOME for
+# their cache root.
+export HF_HOME="$ROOT/models"
+mkdir -p "$HF_HOME"
+
 if [ ! -d ".venv" ]; then
   echo ">> creating venv at .venv"
   "$PY" -m venv .venv

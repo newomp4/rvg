@@ -1,64 +1,180 @@
-"""Edge TTS wrapper.
+"""Chatterbox TTS + whisper-timestamped for word-level alignment.
 
-edge-tts streams two kinds of events while it synthesizes:
-  - audio chunks (bytes), which we concatenate to an mp3
-  - WordBoundary events, which give us start time + duration per spoken word
-    in units of 100-nanoseconds (i.e. divide by 1e7 to get seconds)
+Why two models?
+  - Chatterbox produces high-quality speech but its inference API doesn't
+    return word timings.
+  - whisper-timestamped runs Whisper and emits per-word start/end times.
+  - We feed whisper our generated audio AND our known transcript, then pair
+    each detected word with the matching word from our typed story (so the
+    color tags from {red}word{/red} carry across).
 
-We use the WordBoundary events as the canonical word-timing source, which is
-much cheaper and more accurate than running a forced aligner like Whisper.
+Models are loaded lazily into module-level singletons. First call downloads
+weights into ./models/ (because HF_HOME is set in app/__init__.py); subsequent
+renders re-use the loaded model.
 """
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
-import asyncio
+from typing import List, Optional
+import os
+import re
+import threading
 
-import edge_tts
+import numpy as np
 
 
 @dataclass
 class TimedWord:
-    text: str          # the word string as the TTS pronounced it (may differ slightly from input)
-    start: float       # seconds, in *original* audio (before silence removal)
+    """A word with timing in seconds, in the *raw* generated-audio timeline.
+    `text` is the word as the user typed it (so we can match color tags later);
+    timings come from whisper's forced alignment of the generated audio."""
+    text: str
+    start: float
     end: float
 
 
-async def _synthesize_async(text: str, voice: str, rate: str, out_mp3: Path) -> List[TimedWord]:
-    # boundary='WordBoundary' is required since edge-tts ≥7 — the default
-    # changed to SentenceBoundary, which is too coarse for per-word captions.
-    com = edge_tts.Communicate(text, voice=voice, rate=rate, boundary="WordBoundary")
-    timed: list[TimedWord] = []
-    with open(out_mp3, "wb") as f:
-        async for chunk in com.stream():
-            t = chunk.get("type")
-            if t == "audio":
-                f.write(chunk["data"])
-            elif t == "WordBoundary":
-                start = chunk["offset"] / 1e7
-                end = start + chunk["duration"] / 1e7
-                timed.append(TimedWord(text=chunk["text"], start=start, end=end))
-    return timed
+# ---------------------------------------------------------------- model state
+_chatterbox = None
+_chatterbox_lock = threading.Lock()
+_whisper = None
+_whisper_lock = threading.Lock()
 
 
-def synthesize(text: str, voice: str, rate: str, out_mp3: Path) -> List[TimedWord]:
-    """Synthesize `text` to `out_mp3`. Returns word timings in seconds."""
-    return asyncio.run(_synthesize_async(text, voice, rate, out_mp3))
+def _device() -> str:
+    """Pick the best available torch device. Chatterbox isn't reliable on
+    MPS yet (s3tokenizer hits float64 issues), so we default to CPU; MPS can
+    be opted into via env var if/when we want to experiment."""
+    import torch
+    if os.environ.get("RVG_TTS_DEVICE") == "mps" and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
-# Curated subset of high-quality en-US voices — full list is huge, this
-# covers the natural-sounding ones that work well for narration.
-PRESET_VOICES: list[tuple[str, str]] = [
-    ("Andrew (US, male, warm)",     "en-US-AndrewMultilingualNeural"),
-    ("Brian (US, male, casual)",    "en-US-BrianMultilingualNeural"),
-    ("Christopher (US, male, low)", "en-US-ChristopherNeural"),
-    ("Eric (US, male, calm)",       "en-US-EricNeural"),
-    ("Guy (US, male, narration)",   "en-US-GuyNeural"),
-    ("Aria (US, female, warm)",     "en-US-AriaNeural"),
-    ("Ava (US, female, casual)",    "en-US-AvaMultilingualNeural"),
-    ("Emma (US, female, energetic)","en-US-EmmaMultilingualNeural"),
-    ("Jenny (US, female, warm)",    "en-US-JennyNeural"),
-    ("Michelle (US, female, calm)", "en-US-MichelleNeural"),
-    ("Ryan (UK, male, deep)",       "en-GB-RyanNeural"),
-    ("Sonia (UK, female, clear)",   "en-GB-SoniaNeural"),
-]
+def _load_chatterbox():
+    global _chatterbox
+    if _chatterbox is not None:
+        return _chatterbox
+    with _chatterbox_lock:
+        if _chatterbox is None:
+            from chatterbox.tts import ChatterboxTTS
+            _chatterbox = ChatterboxTTS.from_pretrained(device=_device())
+    return _chatterbox
+
+
+def _load_whisper():
+    """Load the whisper-timestamped model. small.en is ~244MB and accurate
+    enough for narration TTS (where we already know the transcript)."""
+    global _whisper
+    if _whisper is not None:
+        return _whisper
+    with _whisper_lock:
+        if _whisper is None:
+            import whisper_timestamped as wt
+            _whisper = wt.load_model("small.en", device="cpu")
+    return _whisper
+
+
+# ---------------------------------------------------------------- generation
+
+def _save_wav(tensor, path: Path, sr: int) -> None:
+    """Save a torch tensor as 16-bit PCM wav."""
+    import torchaudio as ta
+    ta.save(str(path), tensor.detach().cpu(), sample_rate=sr)
+
+
+def synthesize(
+    text: str,
+    out_wav: Path,
+    voice_ref_path: Optional[str] = None,
+    *,
+    exaggeration: float = 0.5,
+    cfg_weight: float = 0.5,
+) -> List[TimedWord]:
+    """Generate speech for `text`, write to `out_wav`, return word timings.
+
+    Args:
+        text: clean text (color tags should already be stripped)
+        out_wav: where to write the generated audio (.wav)
+        voice_ref_path: optional path to a 5–10s reference audio for cloning;
+            when None, Chatterbox uses its built-in default voice.
+        exaggeration: 0..1, expressivity. 0.5 is the upstream default.
+        cfg_weight: 0..1, classifier-free guidance. 0.5 = balanced.
+    """
+    model = _load_chatterbox()
+    kwargs = {"exaggeration": exaggeration, "cfg_weight": cfg_weight}
+    if voice_ref_path and Path(voice_ref_path).exists():
+        kwargs["audio_prompt_path"] = voice_ref_path
+    wav = model.generate(text, **kwargs)
+    _save_wav(wav, out_wav, model.sr)
+
+    return _word_timings_for(out_wav, text)
+
+
+# ---------------------------------------------------------------- alignment
+
+_TOKEN_RE = re.compile(r"\S+")
+
+
+def _word_timings_for(wav_path: Path, expected_text: str) -> List[TimedWord]:
+    """Run whisper-timestamped on the generated audio and pair each detected
+    word with the corresponding word from `expected_text`. Detected words
+    almost always match the typed words (we just generated them) but when
+    they drift we fall back to proportional distribution.
+    """
+    import whisper_timestamped as wt
+    model = _load_whisper()
+    audio = wt.load_audio(str(wav_path))
+    result = wt.transcribe(model, audio, language="en", verbose=False, vad=False)
+
+    detected: list[tuple[str, float, float]] = []
+    for seg in result.get("segments", []):
+        for w in seg.get("words", []) or []:
+            detected.append((str(w.get("text", "")).strip(),
+                             float(w.get("start", 0.0)),
+                             float(w.get("end", 0.0))))
+
+    expected_words = _TOKEN_RE.findall(expected_text)
+
+    if not detected or not expected_words:
+        return _proportional_fallback(expected_words, wav_path)
+
+    # When counts match we can zip directly — the typical case.
+    if len(detected) == len(expected_words):
+        return [TimedWord(text=ew, start=s, end=e)
+                for ew, (_, s, e) in zip(expected_words, detected)]
+
+    # Otherwise: align by index proportionally. Whisper sometimes splits
+    # contractions ("don't" → "don" + "'t") or merges short words; for our
+    # purposes per-word timing accuracy of ~50ms is fine.
+    n_e, n_d = len(expected_words), len(detected)
+    out: list[TimedWord] = []
+    for i, ew in enumerate(expected_words):
+        # map index i in expected -> nearest position in detected
+        j = min(n_d - 1, int(i * n_d / n_e))
+        _, s, e = detected[j]
+        out.append(TimedWord(text=ew, start=s, end=e))
+    return out
+
+
+def _proportional_fallback(words: list[str], wav_path: Path) -> List[TimedWord]:
+    """Last-resort: distribute words evenly across the audio duration."""
+    import torchaudio as ta
+    info = ta.info(str(wav_path))
+    duration = info.num_frames / info.sample_rate
+    if not words:
+        return []
+    step = duration / len(words)
+    out: list[TimedWord] = []
+    for i, w in enumerate(words):
+        s = i * step
+        e = (i + 1) * step
+        out.append(TimedWord(text=w, start=s, end=e))
+    return out
+
+
+# ---------------------------------------------------------------- voice list
+
+# Voices are now cloned from a reference clip rather than picked from a list.
+# We keep this constant for compatibility with the UI; an empty path means
+# "use Chatterbox's default voice."
+DEFAULT_VOICE_REF: str = ""

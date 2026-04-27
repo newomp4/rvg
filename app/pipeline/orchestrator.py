@@ -38,13 +38,19 @@ def render(settings: RenderSettings, progress: ProgressFn | None = None) -> Path
     plain = story_mod.strip_for_tts(plain)
 
     p("synthesizing voice", 0.08)
-    raw_mp3 = work / "speech_raw.mp3"
-    timed = tts_mod.synthesize(plain, settings.voice, settings.voice_rate, raw_mp3)
+    raw_wav = work / "speech_raw.wav"
+    timed = tts_mod.synthesize(
+        text=plain,
+        out_wav=raw_wav,
+        voice_ref_path=(settings.voice_ref_path or None),
+        exaggeration=settings.voice_exaggeration,
+        cfg_weight=settings.voice_cfg_weight,
+    )
     if not timed:
         raise RuntimeError("TTS returned no word timings")
 
     p("removing silences", 0.20)
-    trimmed_audio, timed = silence_mod.remove_silences(raw_mp3, timed, work)
+    trimmed_audio, timed = silence_mod.remove_silences(raw_wav, timed, work)
     audio_len = audio_duration(trimmed_audio)
 
     # Total video length = title card duration + speech audio length

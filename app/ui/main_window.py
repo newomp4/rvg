@@ -27,7 +27,6 @@ from app.config import (
 )
 from app.ui.theme import QSS
 from app.ui.logo_canvas import LogoCanvas
-from app.pipeline.tts import PRESET_VOICES
 from app.pipeline.orchestrator import render as run_pipeline
 
 
@@ -201,18 +200,21 @@ class MainWindow(QMainWindow):
         tag_row.addStretch(1)
         col.addWidget(card(self.story_in, tag_row, title="story"))
 
-        # Voice
-        self.voice_box = QComboBox()
-        for label, vid in PRESET_VOICES:
-            self.voice_box.addItem(label, vid)
-        self.voice_rate = QSpinBox()
-        self.voice_rate.setRange(-50, 50)
-        self.voice_rate.setSuffix("%")
-        self.voice_rate.setValue(0)
+        # Voice — Chatterbox uses a reference audio clip (5–10s) to clone any
+        # voice. Leave empty for the built-in default voice.
+        self.voice_ref_in = QLineEdit()
+        self.voice_ref_in.setPlaceholderText("(default voice — drop a 5–10s WAV here to clone)")
+        self.voice_ref_btn = QPushButton("browse")
+        self.voice_ref_btn.setProperty("role", "ghost")
+        self.voice_ref_clear = QPushButton("clear")
+        self.voice_ref_clear.setProperty("role", "ghost")
+        self.voice_exag = QDoubleSpinBox(); self.voice_exag.setRange(0.0, 1.0); self.voice_exag.setSingleStep(0.05); self.voice_exag.setValue(0.5)
+        self.voice_cfg  = QDoubleSpinBox(); self.voice_cfg.setRange(0.0, 1.0); self.voice_cfg.setSingleStep(0.05); self.voice_cfg.setValue(0.5)
         col.addWidget(card(
-            labeled("voice", self.voice_box, 2),
-            labeled("rate", self.voice_rate, 1),
-            title="voice"
+            labeled("clone from", row(self.voice_ref_in, self.voice_ref_btn, self.voice_ref_clear)),
+            labeled("expressivity", self.voice_exag),
+            labeled("cfg weight", self.voice_cfg),
+            title="voice (chatterbox)"
         ))
 
         # Clips folder
@@ -325,6 +327,8 @@ class MainWindow(QMainWindow):
     # ---- wiring ----
     def _wire(self):
         self.clips_dir_btn.clicked.connect(self._pick_clips_dir)
+        self.voice_ref_btn.clicked.connect(self._pick_voice_ref)
+        self.voice_ref_clear.clicked.connect(lambda: self.voice_ref_in.setText(""))
         self.logo_pick.clicked.connect(self._pick_logo)
         self.logo_clear.clicked.connect(self._clear_logo)
         self.logo_width.valueChanged.connect(self.logo_canvas.set_width)
@@ -369,13 +373,9 @@ class MainWindow(QMainWindow):
         self._refresh_channel_buttons()
         self.title_in.setText(s.title)
         self.story_in.setPlainText(s.story)
-        idx = self.voice_box.findData(s.voice)
-        if idx >= 0:
-            self.voice_box.setCurrentIndex(idx)
-        try:
-            self.voice_rate.setValue(int(s.voice_rate.replace("%", "")))
-        except Exception:
-            self.voice_rate.setValue(0)
+        self.voice_ref_in.setText(s.voice_ref_path)
+        self.voice_exag.setValue(s.voice_exaggeration)
+        self.voice_cfg.setValue(s.voice_cfg_weight)
         self.clips_dir_in.setText(s.clips_dir)
         self.seg_min.setValue(s.seg_min_s)
         self.seg_max.setValue(s.seg_max_s)
@@ -409,9 +409,9 @@ class MainWindow(QMainWindow):
         s.channel = self.settings.channel
         s.title = self.title_in.text().strip()
         s.story = self.story_in.toPlainText()
-        s.voice = self.voice_box.currentData() or PRESET_VOICES[0][1]
-        rate = int(self.voice_rate.value())
-        s.voice_rate = (f"+{rate}%" if rate >= 0 else f"{rate}%")
+        s.voice_ref_path = self.voice_ref_in.text().strip()
+        s.voice_exaggeration = float(self.voice_exag.value())
+        s.voice_cfg_weight = float(self.voice_cfg.value())
         s.clips_dir = self.clips_dir_in.text().strip() or str(CLIPS_DIR_DEFAULT)
         s.seg_min_s = float(self.seg_min.value())
         s.seg_max_s = float(self.seg_max.value())
@@ -450,6 +450,14 @@ class MainWindow(QMainWindow):
                                              self.clips_dir_in.text() or str(PROJECT_ROOT))
         if d:
             self.clips_dir_in.setText(d)
+
+    def _pick_voice_ref(self):
+        f, _ = QFileDialog.getOpenFileName(
+            self, "choose voice reference (5–10s wav/mp3)",
+            self.voice_ref_in.text() or str(ASSETS_DIR),
+            "Audio (*.wav *.mp3 *.flac *.m4a *.ogg)")
+        if f:
+            self.voice_ref_in.setText(f)
 
     def _pick_logo(self):
         f, _ = QFileDialog.getOpenFileName(self, "choose logo PNG",
