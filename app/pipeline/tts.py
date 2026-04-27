@@ -50,8 +50,13 @@ _whisper_lock = threading.Lock()
 
 
 def _device() -> str:
+    """Default to CPU — MPS produces glitchy output with Qwen3-TTS as of
+    qwen-tts 0.1.x (suspected fp16 codec ops). CPU is actually faster on
+    M-series for this model AND produces clean audio. Set RVG_TTS_DEVICE=mps
+    to opt back in if a future qwen-tts release fixes it."""
     import torch
-    if torch.backends.mps.is_available() and os.environ.get("RVG_TTS_DEVICE", "mps") != "cpu":
+    requested = os.environ.get("RVG_TTS_DEVICE", "cpu")
+    if requested == "mps" and torch.backends.mps.is_available():
         return "mps"
     return "cpu"
 
