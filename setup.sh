@@ -31,6 +31,16 @@ python -m pip install --upgrade pip wheel >/dev/null
 echo ">> installing python deps"
 python -m pip install -r requirements.txt
 
+# Playwright needs chromium; this downloads ~150MB into ~/Library/Caches/ms-playwright
+# We can't redirect that to the project folder without further config, so we pin
+# PLAYWRIGHT_BROWSERS_PATH and let setup put it there.
+export PLAYWRIGHT_BROWSERS_PATH="$ROOT/models/playwright"
+mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH/chromium-"* ]; then
+  echo ">> installing chromium for playwright (~150MB) into ./models/playwright/"
+  python -m playwright install chromium
+fi
+
 # Fetch a static ffmpeg + ffprobe binary into ./bin if not already present.
 # imageio-ffmpeg ships a static ffmpeg; we copy/symlink it so the rest of the
 # code can just call ./bin/ffmpeg without depending on system PATH.

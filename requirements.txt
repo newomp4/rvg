@@ -1,16 +1,15 @@
-# Chatterbox's perth-watermarker dep relies on pkg_resources, which was
-# stripped from setuptools 81+. Pin until upstream migrates to importlib.resources.
-setuptools<81
 PyQt6>=6.7
 auto-editor>=27.0
 Pillow>=10.4
 numpy>=1.26
 imageio-ffmpeg>=0.5
-# Chatterbox TTS — high-quality local model (replaces edge-tts).
-chatterbox-tts>=0.1.7
-# Forced alignment for word-level caption timings — Chatterbox doesn't expose them.
+# Qwen3-TTS — local TTS with built-in preset voices (no reference clip required).
+qwen-tts
+# Forced alignment for word-level caption timings — Qwen doesn't expose them.
 whisper-timestamped>=1.15
-# torch + torchaudio are pulled in transitively by chatterbox-tts; pinning here
-# explicitly so the install order is deterministic.
 torch>=2.4
 torchaudio>=2.4
+soundfile>=0.12
+# Headless Chromium for rendering the title card as a real motion graphic
+# (HTML/CSS animations + per-frame screenshots) instead of PIL per-frame.
+playwright>=1.45

@@ -11,6 +11,7 @@ source .venv/bin/activate
 
 # pin model cache to the project folder
 export HF_HOME="$ROOT/models"
+export PLAYWRIGHT_BROWSERS_PATH="$ROOT/models/playwright"
 # allow MPS to silently fall back to CPU for ops that aren't implemented
 export PYTORCH_ENABLE_MPS_FALLBACK=1
 

@@ -42,9 +42,8 @@ def render(settings: RenderSettings, progress: ProgressFn | None = None) -> Path
     timed = tts_mod.synthesize(
         text=plain,
         out_wav=raw_wav,
-        voice_ref_path=(settings.voice_ref_path or None),
-        exaggeration=settings.voice_exaggeration,
-        cfg_weight=settings.voice_cfg_weight,
+        voice=settings.voice,
+        instruct=(settings.voice_instruct or None),
     )
     if not timed:
         raise RuntimeError("TTS returned no word timings")
