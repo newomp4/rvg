@@ -49,7 +49,8 @@ def render(settings: RenderSettings, progress: ProgressFn | None = None) -> Path
         raise RuntimeError("TTS returned no word timings")
 
     p("removing silences", 0.20)
-    trimmed_audio, timed = silence_mod.remove_silences(raw_wav, timed, work)
+    trimmed_audio, timed = silence_mod.remove_silences(
+        raw_wav, timed, work, margin=settings.silence_margin)
     audio_len = audio_duration(trimmed_audio)
 
     # Total video length = title card duration + speech audio length

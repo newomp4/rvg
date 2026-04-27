@@ -30,15 +30,19 @@ class KeptSegment:
     out_end: float
 
 
-def _auto_editor_timeline(audio_in: Path, v3_out: Path) -> None:
-    """Ask auto-editor to dump a v3 JSON timeline (no media output).
-    Note: auto-editor v29 needs the output file to end in .v3 for the v3
-    exporter, regardless of contents (the file is JSON)."""
+_DEFAULT_MARGIN = "0.4s"   # bigger than auto-editor's 0.2s default — TTS audio
+                            # is already tight, the wider margin prevents the
+                            # micro-cuts that produce a glitchy, choppy sound.
+
+
+def _auto_editor_timeline(audio_in: Path, v3_out: Path, margin: str) -> None:
+    """Ask auto-editor to dump a v3 JSON timeline (no media output)."""
     if v3_out.suffix != ".v3":
         v3_out = v3_out.with_suffix(".v3")
     cmd = [
         sys.executable, "-m", "auto_editor",
         str(audio_in),
+        "--margin", margin,
         "--export", "v3",
         "-o", str(v3_out),
         "--no-open",
@@ -46,11 +50,12 @@ def _auto_editor_timeline(audio_in: Path, v3_out: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
-def _auto_editor_render(audio_in: Path, audio_out: Path) -> None:
-    """Render the trimmed audio."""
+def _auto_editor_render(audio_in: Path, audio_out: Path, margin: str) -> None:
+    """Render the trimmed audio with the same margin as the timeline."""
     cmd = [
         sys.executable, "-m", "auto_editor",
         str(audio_in),
+        "--margin", margin,
         "-o", str(audio_out),
         "--no-open",
     ]
@@ -102,18 +107,24 @@ def _parse_timeline(v3_path: Path) -> tuple[float, list[KeptSegment]]:
     return timebase, kept
 
 
-def remove_silences(audio_in: Path, words: list[TimedWord], work_dir: Path) -> tuple[Path, list[TimedWord]]:
+def remove_silences(audio_in: Path, words: list[TimedWord], work_dir: Path,
+                    margin: str = _DEFAULT_MARGIN) -> tuple[Path, list[TimedWord]]:
     """Run auto-editor, return (trimmed audio path, remapped word timings).
 
+    `margin` is auto-editor's --margin parameter. 0.4s is the right default
+    for TTS audio (already tight); 0.2s (the auto-editor default) makes
+    audible micro-cuts that sound glitchy. Real recorded narration with
+    hesitations may want a smaller value.
+
     Words that fall entirely inside a cut region are dropped. Words that span
-    a cut boundary get their times clamped — rare, since silences split words.
+    a cut boundary get their times clamped.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
     timeline_v3 = work_dir / "ae_timeline.v3"
     audio_out   = work_dir / "speech_trimmed.wav"
 
-    _auto_editor_timeline(audio_in, timeline_v3)
-    _auto_editor_render(audio_in, audio_out)
+    _auto_editor_timeline(audio_in, timeline_v3, margin)
+    _auto_editor_render(audio_in, audio_out, margin)
     _, kept = _parse_timeline(timeline_v3)
 
     new_words: list[TimedWord] = []

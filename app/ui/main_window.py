@@ -207,9 +207,16 @@ class MainWindow(QMainWindow):
             self.voice_box.addItem(label, vid)
         self.voice_instruct = QLineEdit()
         self.voice_instruct.setPlaceholderText("(optional) say it casually, or with sarcasm…")
+        self.silence_margin = QLineEdit()
+        self.silence_margin.setText("0.4s")
+        self.silence_margin.setToolTip(
+            "auto-editor's --margin. Higher = less aggressive silence cutting.\n"
+            "0.4s for TTS (default), 0.2s for human narration with hesitations,\n"
+            "1s+ to effectively skip silence removal.")
         col.addWidget(card(
             labeled("voice", self.voice_box),
             labeled("style prompt", self.voice_instruct),
+            labeled("silence margin", self.silence_margin),
             title="voice (qwen3-tts)"
         ))
 
@@ -371,6 +378,7 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.voice_box.setCurrentIndex(idx)
         self.voice_instruct.setText(s.voice_instruct)
+        self.silence_margin.setText(s.silence_margin)
         self.clips_dir_in.setText(s.clips_dir)
         self.seg_min.setValue(s.seg_min_s)
         self.seg_max.setValue(s.seg_max_s)
@@ -406,6 +414,7 @@ class MainWindow(QMainWindow):
         s.story = self.story_in.toPlainText()
         s.voice = self.voice_box.currentData() or "Aiden"
         s.voice_instruct = self.voice_instruct.text().strip()
+        s.silence_margin = self.silence_margin.text().strip() or "0.4s"
         s.clips_dir = self.clips_dir_in.text().strip() or str(CLIPS_DIR_DEFAULT)
         s.seg_min_s = float(self.seg_min.value())
         s.seg_max_s = float(self.seg_max.value())
