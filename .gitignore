@@ -18,10 +18,14 @@ clips/*
 !clips/.gitkeep
 assets/*
 !assets/.gitkeep
+# Fonts (Inter, OFL) and bundled default voices need to ship with the repo.
+!assets/fonts/
+!assets/voices/
 channels/*/render/
 *.mov
 *.mp4
 *.mp3
 *.wav
 !channels/**/template.mov
+!assets/voices/*.wav
 .claude/

@@ -192,21 +192,34 @@ def stroked_rounded_rect(size: tuple[int, int], radius: int, fill_rgba: tuple[in
     return canvas, pad
 
 
+def ease_out_quart(p: float) -> float:
+    """Stronger fast-then-slow than cubic, no overshoot. Good for card scales."""
+    p = max(0.0, min(1.0, p))
+    return 1.0 - (1.0 - p) ** 4
+
+
 def draw_heart_outline(canvas: Image.Image, cx: int, cy: int, size: int,
                        color: tuple[int, int, int, int], stroke: int = 4) -> None:
-    """Hand-drawn heart outline (Reddit's style is a thin gray outline). We
-    can't rely on a Unicode heart since stroke widths matter and PIL won't
-    stroke text glyphs cleanly."""
-    # heart curve: two arcs at the top + downward V at bottom
+    """Smooth heart outline using the parametric heart curve
+        x = 16 sin³(t)
+        y = -(13 cos t − 5 cos 2t − 2 cos 3t − cos 4t)
+    Sample 200 points and stroke the closed polyline. `size` is the radius
+    in target pixels; the heart is centered at (cx, cy)."""
+    import math
+    pts = []
+    for i in range(200):
+        t = (i / 200) * 2 * math.pi
+        x = 16 * math.sin(t) ** 3
+        y = -(13 * math.cos(t) - 5 * math.cos(2*t)
+              - 2 * math.cos(3*t) - math.cos(4*t))
+        pts.append((x, y))
+    xs, ys = zip(*pts)
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    span = max(maxx - minx, maxy - miny)
+    target_span = size * 2
+    scale = target_span / span
+    px = cx - ((minx + maxx) / 2) * scale
+    py = cy - ((miny + maxy) / 2) * scale
+    pts = [(px + x * scale, py + y * scale) for x, y in pts]
     d = ImageDraw.Draw(canvas)
-    s = size
-    # bounding box for left lobe and right lobe (half-circles)
-    left_box  = (cx - s, cy - s, cx,         cy)
-    right_box = (cx,     cy - s, cx + s,     cy)
-    # arcs (180° each)
-    d.arc(left_box,  start=180, end=360, fill=color, width=stroke)
-    d.arc(right_box, start=180, end=360, fill=color, width=stroke)
-    # bottom V — connect arc endpoints to the bottom point
-    bottom_y = cy + int(s * 0.95)
-    d.line((cx - s, cy, cx, bottom_y), fill=color, width=stroke)
-    d.line((cx + s, cy, cx, bottom_y), fill=color, width=stroke)
+    d.line(pts + [pts[0]], fill=color, width=stroke, joint="curve")

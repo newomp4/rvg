@@ -82,28 +82,49 @@ def _save_wav(tensor, path: Path, sr: int) -> None:
     ta.save(str(path), tensor.detach().cpu(), sample_rate=sr)
 
 
+def _bundled_default_ref() -> Optional[Path]:
+    """Return the path to the bundled default reference voice if it exists.
+    Chatterbox produces unpredictable voices when called with no reference,
+    so we always pass *some* reference — either the user's, or this default.
+    """
+    from app.config import ASSETS_DIR
+    p = ASSETS_DIR / "voices" / "default_male.wav"
+    return p if p.exists() else None
+
+
 def synthesize(
     text: str,
     out_wav: Path,
     voice_ref_path: Optional[str] = None,
     *,
-    exaggeration: float = 0.5,
-    cfg_weight: float = 0.5,
+    exaggeration: float = 0.4,
+    cfg_weight: float = 0.6,
 ) -> List[TimedWord]:
     """Generate speech for `text`, write to `out_wav`, return word timings.
 
     Args:
         text: clean text (color tags should already be stripped)
         out_wav: where to write the generated audio (.wav)
-        voice_ref_path: optional path to a 5–10s reference audio for cloning;
-            when None, Chatterbox uses its built-in default voice.
-        exaggeration: 0..1, expressivity. 0.5 is the upstream default.
-        cfg_weight: 0..1, classifier-free guidance. 0.5 = balanced.
+        voice_ref_path: optional path to a 5–10s reference audio for cloning.
+            When None or missing, falls back to the bundled default voice
+            reference at assets/voices/default_male.wav.
+        exaggeration: 0..1, expressivity. Lower = more neutral narration.
+        cfg_weight: 0..1, classifier-free guidance. Higher = more faithful
+            to the reference voice and less random.
     """
     model = _load_chatterbox()
-    kwargs = {"exaggeration": exaggeration, "cfg_weight": cfg_weight}
+
+    # Pick a reference: user-provided > bundled default > none.
+    ref = None
     if voice_ref_path and Path(voice_ref_path).exists():
-        kwargs["audio_prompt_path"] = voice_ref_path
+        ref = Path(voice_ref_path)
+    else:
+        ref = _bundled_default_ref()
+
+    kwargs = {"exaggeration": exaggeration, "cfg_weight": cfg_weight}
+    if ref is not None:
+        kwargs["audio_prompt_path"] = str(ref)
+
     wav = model.generate(text, **kwargs)
     _save_wav(wav, out_wav, model.sr)
 

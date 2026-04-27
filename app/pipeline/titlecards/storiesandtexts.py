@@ -28,7 +28,7 @@ from app.config import (
     OUTPUT_W, OUTPUT_H, OUTPUT_FPS, CHANNELS_DIR,
 )
 from app.pipeline.titlecards.common import (
-    ease_out_cubic, ease_out_back, lerp, hex_to_rgba, load_inter,
+    ease_out_cubic, ease_out_back, ease_out_quart, lerp, hex_to_rgba, load_inter,
     wrap_to_box, measure_block, draw_lines, paste_pixmap,
     stroked_rounded_rect, open_alpha_writer, draw_heart_outline,
 )
@@ -36,43 +36,50 @@ from app.pipeline.titlecards.common import (
 
 # ---- design constants (in CARD-LOCAL pixel units; will scale at render time)
 
-CARD_W = 960                # final card width on screen
+CARD_W = 920                # final card width on screen (~85% of 1080 frame)
 CARD_RADIUS = 36
-CARD_BORDER_RGBA = (224, 224, 224, 255)    # very subtle gray stroke
+CARD_BORDER_RGBA = (224, 224, 224, 255)
 CARD_FILL = "#ffffff"
-CARD_SHADOW = (0, 0, 0, 70)
-CARD_SHADOW_OFFSET = (0, 12)
-CARD_SHADOW_BLUR = 28
+CARD_SHADOW = (0, 0, 0, 60)
+CARD_SHADOW_OFFSET = (0, 14)
+CARD_SHADOW_BLUR = 30
 
-PAD_X = 56                  # horizontal padding inside the card
-PAD_TOP = 56
-PAD_BOTTOM = 40
-HEADER_AVATAR_SIZE = 108
-HEADER_GAP = 24
-HEADER_NAME_SIZE = 40
-VERIFIED_SIZE = 36
-EMOJI_SIZE = 36
-EMOJI_GAP = 10
-EMOJI_ROW_TOP_GAP = 18
-HEADLINE_TOP_GAP = 36
+PAD_X = 52
+PAD_TOP = 52
+PAD_BOTTOM = 36
+HEADER_AVATAR_SIZE = 112    # slightly bigger avatar reads cleaner at 1080p
+HEADER_GAP = 22
+HEADER_NAME_SIZE = 42
+VERIFIED_SIZE = 38
+EMOJI_SIZE = 44             # bumped from 36 — small icons looked low-bitrate
+EMOJI_GAP = 8
+HEADLINE_TOP_GAP = 32
 HEADLINE_MAX_SIZE = 64
 HEADLINE_MIN_SIZE = 40
 HEADLINE_LINE_SPACING = 0.18
-BOTTOM_GAP = 36
+BOTTOM_GAP = 32
 BOTTOM_TEXT_SIZE = 30
-HEART_RADIUS = 16
-HEART_STROKE = 4
+HEART_RADIUS = 18
+HEART_STROKE = 5
+
+# Vertical positions WITHIN the avatar's 112px band (relative to avatar top):
+# - name aligns to upper third
+# - emoji row aligns to lower third
+NAME_Y_OFFSET   = 6                                   # name top relative to avatar top
+EMOJI_Y_OFFSET  = HEADER_AVATAR_SIZE - EMOJI_SIZE//2 - 4   # emoji center near avatar bottom
 
 # colors
 TEXT_BLACK = "#0F1418"
 MUTED_GRAY = "#A4A4A4"
 
-# animation phase windows (start, end) in seconds, relative to t=0
-PHASE_CARD     = (0.00, 0.45)
-PHASE_HEADER   = (0.20, 0.50)
-PHASE_EMOJIS   = (0.30, 0.60)
-PHASE_HEADLINE = (0.40, 0.70)
-PHASE_BOTTOM   = (0.50, 0.80)
+# Animation phase windows (start, end) in seconds, relative to t=0.
+# Card uses ease_out_quart (fast then slow, no overshoot). Other elements
+# use ease_out_cubic and stagger with a smoother spread.
+PHASE_CARD     = (0.00, 0.55)
+PHASE_HEADER   = (0.25, 0.65)
+PHASE_EMOJIS   = (0.35, 0.75)
+PHASE_HEADLINE = (0.40, 0.80)
+PHASE_BOTTOM   = (0.50, 0.90)
 
 
 def _phase_progress(t: float, phase: tuple[float, float]) -> float:
@@ -112,18 +119,25 @@ def _layout(title: str, channel: str) -> dict:
     header_y0 = PAD_TOP
     avatar_x = pad_x + HEADER_AVATAR_SIZE // 2
     avatar_y = header_y0 + HEADER_AVATAR_SIZE // 2
-    name_x = pad_x + HEADER_AVATAR_SIZE + HEADER_GAP
-    name_y = header_y0 + (HEADER_AVATAR_SIZE - name_h) // 2 - 8  # nudge up to align caps
-    verified_x = name_x + name_w + 12 + VERIFIED_SIZE // 2
-    verified_y = name_y + name_h // 2
 
-    # Emoji row sits BELOW "AskReddit" but inside the avatar's vertical band
+    # Name sits at the TOP of the avatar's vertical band (matches Figma);
+    # we measure font metrics and pin the cap-height area up there.
+    name_x = pad_x + HEADER_AVATAR_SIZE + HEADER_GAP
+    # The bbox y0 of "AskReddit" is the top of caps, so subtract bbox y0 to
+    # align caps to the desired y position rather than the font's draw-origin.
+    name_bbox = name_font.getbbox("AskReddit")
+    cap_top = name_bbox[1]                                    # > 0 typically
+    name_y = header_y0 + NAME_Y_OFFSET - cap_top              # offset so caps land on NAME_Y_OFFSET
+    name_caps_h = name_bbox[3] - name_bbox[1]                 # actual caps height
+    verified_x = name_x + name_w + 10 + VERIFIED_SIZE // 2
+    verified_y = header_y0 + NAME_Y_OFFSET + name_caps_h // 2  # vertical center of name caps
+
+    # Emoji row aligns to the BOTTOM of the avatar's vertical band.
     emojis = _emoji_paths(channel)
-    emoji_row_y = name_y + name_h + EMOJI_ROW_TOP_GAP + EMOJI_SIZE // 2
+    emoji_row_y = header_y0 + EMOJI_Y_OFFSET                  # center of emoji
     emoji_row_x_start = name_x + EMOJI_SIZE // 2
 
-    header_bottom = max(header_y0 + HEADER_AVATAR_SIZE,
-                        emoji_row_y + EMOJI_SIZE // 2)
+    header_bottom = header_y0 + HEADER_AVATAR_SIZE
 
     # Headline: word-wrap to fit width, find a font size that fits.
     headline_top = header_bottom + HEADLINE_TOP_GAP
@@ -150,7 +164,7 @@ def _layout(title: str, channel: str) -> dict:
         card_w=CARD_W, card_h=card_h,
         pad_x=pad_x, inner_w=inner_w,
         avatar_x=avatar_x, avatar_y=avatar_y,
-        name_x=name_x, name_y=name_y, name_w=name_w, name_h=name_h, name_font=name_font,
+        name_x=name_x, name_y=name_y, name_w=name_w, name_h=name_caps_h, name_font=name_font,
         verified_x=verified_x, verified_y=verified_y,
         emojis=emojis,
         emoji_row_y=emoji_row_y, emoji_row_x_start=emoji_row_x_start,
@@ -257,10 +271,12 @@ def _draw_bottom(card: Image.Image, layout: dict, handle: str, bottom_p: float) 
 
 def _build_card_image(layout: dict, channel: str, handle: str, t: float) -> Image.Image:
     """Build a fully-composited card image (still on a transparent background,
-    sized exactly card_w × card_h). Apply pop transforms to it externally."""
+    sized exactly card_w × card_h). The caller applies the pop scale to it.
+    Card pop uses ease_out_quart — fast at start, decelerates smoothly, lands
+    at exactly 1.0 with no overshoot."""
     cw, ch = layout["card_w"], layout["card_h"]
     card_p = _phase_progress(t, PHASE_CARD)
-    eased_card = ease_out_back(card_p) if card_p < 1 else 1.0
+    eased_card = ease_out_quart(card_p)
     body_alpha = int(255 * ease_out_cubic(min(1.0, card_p * 1.5)))
 
     card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))

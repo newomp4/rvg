@@ -71,11 +71,12 @@ class RenderSettings:
     channel: str = ""
     title: str = ""                         # the Reddit-post title shown in the title card
     story: str = ""                         # body of the story, may contain {color}word{/color} tags
-    # Chatterbox voice cloning. Empty string = default voice; otherwise a path
-    # to a 5–10s WAV reference of the voice you want to clone.
+    # Chatterbox voice cloning. Empty string falls back to the bundled default
+    # reference at assets/voices/default_male.wav (a clean macOS Daniel sample);
+    # otherwise a path to a 5–10s WAV of the voice you want to clone.
     voice_ref_path: str = ""
-    voice_exaggeration: float = 0.5         # 0..1, expressivity
-    voice_cfg_weight: float = 0.5           # 0..1, classifier-free guidance
+    voice_exaggeration: float = 0.4         # 0..1, expressivity (lower = more neutral)
+    voice_cfg_weight: float = 0.6           # 0..1, classifier-free guidance (higher = more faithful)
     clips_dir: str = str(CLIPS_DIR_DEFAULT)
     seg_min_s: float = 4.0
     seg_max_s: float = 8.0
