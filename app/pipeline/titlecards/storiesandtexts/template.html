@@ -3,14 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <style>
-  /* Embed Inter via @font-face from local file. The Python side replaces
-     __FONT_DIR__ with a file:// URL to ./assets/fonts/. */
+  /* Inter for the headline (heavy, neutral). Rubik for the small UI bits
+     to match the rest of the app. The Python side substitutes
+     __FONT_DIR__ with a file:// URL pointing at ./assets/fonts/. */
   @font-face { font-family:'Inter'; font-weight:400; font-style:normal;
                src:url('__FONT_DIR__/Inter-Regular.ttf') format('truetype'); }
   @font-face { font-family:'Inter'; font-weight:600; font-style:normal;
                src:url('__FONT_DIR__/Inter-SemiBold.ttf') format('truetype'); }
   @font-face { font-family:'Inter'; font-weight:700; font-style:normal;
                src:url('__FONT_DIR__/Inter-Bold.ttf') format('truetype'); }
+  @font-face { font-family:'Rubik'; font-weight:400 700; font-style:normal;
+               src:url('__FONT_DIR__/Rubik.ttf') format('truetype-variations'); }
 
   * { box-sizing:border-box; margin:0; padding:0; }
   html, body {
@@ -24,70 +27,64 @@
     overflow: hidden;
   }
 
-  /* Stage holds the card and centers it. We control card scale via a CSS
-     custom property so JS can drive it per frame without re-laying out. */
   #stage {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
-    --card-scale: 1;
-    --card-opacity: 1;
-    --header-opacity: 1; --header-y: 0px;
-    --headline-opacity: 1; --headline-y: 0px;
-    --footer-opacity: 1; --footer-y: 0px;
+    /* CSS variables driven per-frame by JS: */
+    --card-scale: 0.85;
+    --card-rotate: -7deg;
+    --card-opacity: 0;
+    --card-translate-y: 0px;
+    --header-opacity: 0; --header-y: 8px;
+    --headline-opacity: 0; --headline-y: 14px;
+    --footer-opacity: 0; --footer-y: 8px;
   }
 
   #card {
-    width: 920px;
+    width: 820px;
     background: #ffffff;
     border-radius: 28px;
-    padding: 44px 48px 36px 48px;
+    padding: 38px 44px 32px 44px;
     box-shadow:
       0px 1px 2px rgba(15, 20, 25, 0.06),
-      0px 24px 56px rgba(15, 20, 25, 0.10);
-    transform: scale(var(--card-scale));
-    opacity: var(--card-opacity);
+      0px 28px 64px rgba(15, 20, 25, 0.12);
+    transform:
+      translateY(var(--card-translate-y))
+      rotate(var(--card-rotate))
+      scale(var(--card-scale));
     transform-origin: center center;
+    opacity: var(--card-opacity);
     will-change: transform, opacity;
   }
 
   .header {
-    display: flex; align-items: center; gap: 16px;
+    display: flex; align-items: center; gap: 14px;
     opacity: var(--header-opacity);
     transform: translateY(var(--header-y));
     will-change: transform, opacity;
   }
-  .pfp {
-    width: 80px; height: 80px;
-    border-radius: 50%;
-    background-image: var(--pfp-url);
-    background-size: cover;
+  .reddit-icon {
+    width: 56px; height: 56px;
+    background-image: var(--reddit-url);
+    background-size: contain;
+    background-repeat: no-repeat;
     background-position: center;
     flex-shrink: 0;
   }
-  .name-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-  .name-line { display: flex; align-items: center; gap: 6px; }
-  .display-name {
-    font-weight: 700; font-size: 30px; line-height: 1.2;
+  .header-name {
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1.0;
     letter-spacing: -0.01em;
-    color: #0F1419;
-  }
-  .verified {
-    flex-shrink: 0;
-    width: 22px; height: 22px;
-    color: #1d9bf0;
-    margin-top: 2px;
-  }
-  .handle {
-    font-weight: 400; font-size: 22px; line-height: 1.2;
-    color: #5B6068;
+    color: #1A1A1B;
   }
 
   .headline {
-    margin-top: 28px;
-    font-weight: 700;
+    margin-top: 24px;
+    font-weight: 800;
     font-size: __HEADLINE_SIZE__px;
-    line-height: 1.18;
-    letter-spacing: -0.015em;
+    line-height: 1.10;
+    letter-spacing: -0.02em;
     color: #0F1419;
     opacity: var(--headline-opacity);
     transform: translateY(var(--headline-y));
@@ -95,10 +92,11 @@
   }
 
   .footer {
-    margin-top: 28px;
-    display: flex; align-items: center; gap: 10px;
+    margin-top: 24px;
+    display: flex; align-items: center; gap: 8px;
     color: #5B6068;
-    font-weight: 500; font-size: 22px;
+    font-family: 'Rubik', 'Inter', sans-serif;
+    font-weight: 500; font-size: 18px;
     opacity: var(--footer-opacity);
     transform: translateY(var(--footer-y));
     will-change: transform, opacity;
@@ -106,6 +104,26 @@
   .heart {
     width: 26px; height: 26px;
     color: #5B6068;
+    flex-shrink: 0;
+  }
+  .footer-count { color: #5B6068; }
+  .footer-spacer { flex: 1; }
+  .channel-tag {
+    display: flex; align-items: center; gap: 8px;
+    color: #5B6068;
+  }
+  .channel-tag .pfp {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background-image: var(--pfp-url);
+    background-size: cover;
+    background-position: center;
+    flex-shrink: 0;
+  }
+  .verified-mini {
+    width: 14px; height: 14px;
+    color: #1d9bf0;
+    flex-shrink: 0;
   }
 </style>
 </head>
@@ -113,108 +131,118 @@
 <div id="stage">
   <div id="card">
     <div class="header">
-      <div class="pfp"></div>
-      <div class="name-block">
-        <div class="name-line">
-          <span class="display-name" id="display-name"></span>
-          <svg class="verified" id="verified" viewBox="0 0 22 22" fill="currentColor" aria-hidden="true" style="display:none;">
-            <!-- 8-petal scalloped circle, hand-tuned to match the Twitter/X style -->
-            <path d="M11 0.5
-                     C 12.7 0.5 14.0 1.7 14.5 3.0
-                     C 15.9 2.2 17.6 2.5 18.7 3.6
-                     C 19.8 4.7 20.1 6.4 19.3 7.8
-                     C 20.6 8.3 21.5 9.6 21.5 11.0
-                     C 21.5 12.4 20.6 13.7 19.3 14.2
-                     C 20.1 15.6 19.8 17.3 18.7 18.4
-                     C 17.6 19.5 15.9 19.8 14.5 19.0
-                     C 14.0 20.3 12.7 21.5 11.0 21.5
-                     C 9.3 21.5 8.0 20.3 7.5 19.0
-                     C 6.1 19.8 4.4 19.5 3.3 18.4
-                     C 2.2 17.3 1.9 15.6 2.7 14.2
-                     C 1.4 13.7 0.5 12.4 0.5 11.0
-                     C 0.5 9.6 1.4 8.3 2.7 7.8
-                     C 1.9 6.4 2.2 4.7 3.3 3.6
-                     C 4.4 2.5 6.1 2.2 7.5 3.0
-                     C 8.0 1.7 9.3 0.5 11.0 0.5 Z"/>
-            <!-- inner check (white) -->
-            <path fill="#ffffff" d="M6.4 11.2 L9.3 14.1 L15.6 7.8" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          </svg>
-        </div>
-        <div class="handle" id="handle"></div>
-      </div>
+      <div class="reddit-icon"></div>
+      <div class="header-name">AskReddit</div>
     </div>
 
     <div class="headline" id="headline"></div>
 
     <div class="footer">
-      <svg class="heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg class="heart" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
       </svg>
-      <span>99+</span>
+      <span class="footer-count">99+</span>
+      <div class="footer-spacer"></div>
+      <div class="channel-tag">
+        <span id="display-name">storiesandtexts</span>
+        <svg class="verified-mini" id="verified-mini" viewBox="0 0 22 22" fill="currentColor"
+             style="display:none;" aria-hidden="true">
+          <path d="M11 0.5 C 12.7 0.5 14.0 1.7 14.5 3.0 C 15.9 2.2 17.6 2.5 18.7 3.6
+                   C 19.8 4.7 20.1 6.4 19.3 7.8 C 20.6 8.3 21.5 9.6 21.5 11.0
+                   C 21.5 12.4 20.6 13.7 19.3 14.2 C 20.1 15.6 19.8 17.3 18.7 18.4
+                   C 17.6 19.5 15.9 19.8 14.5 19.0 C 14.0 20.3 12.7 21.5 11.0 21.5
+                   C 9.3 21.5 8.0 20.3 7.5 19.0 C 6.1 19.8 4.4 19.5 3.3 18.4
+                   C 2.2 17.3 1.9 15.6 2.7 14.2 C 1.4 13.7 0.5 12.4 0.5 11.0
+                   C 0.5 9.6 1.4 8.3 2.7 7.8 C 1.9 6.4 2.2 4.7 3.3 3.6
+                   C 4.4 2.5 6.1 2.2 7.5 3.0 C 8.0 1.7 9.3 0.5 11.0 0.5 Z"/>
+          <path fill="#ffffff" d="M6.4 11.2 L9.3 14.1 L15.6 7.8" stroke="#ffffff"
+                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <div class="pfp"></div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-// ---- timing helpers --------------------------------------------------------
+// ---------- timing helpers ----------
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-// ease_out_quart — fast then slow, no overshoot
+function lerp(a, b, t) { return a + (b - a) * t; }
 function easeOutQuart(p) { p = clamp(p, 0, 1); return 1 - Math.pow(1 - p, 4); }
-// ease_out_cubic — gentler, used for opacity
 function easeOutCubic(p) { p = clamp(p, 0, 1); return 1 - Math.pow(1 - p, 3); }
+function easeInQuad(p)   { p = clamp(p, 0, 1); return p * p; }
+function easeInCubic(p)  { p = clamp(p, 0, 1); return p * p * p; }
 
-// ---- timeline definition ---------------------------------------------------
-// Each entry has [start, end, easing, animator(p)]
-const TIMELINE = {
-  card: {
-    start: 0.00, end: 0.55,
-    apply(p) {
-      const e = easeOutQuart(p);
-      // scale grows from 0.88 → 1.0 (subtle, professional, no overshoot)
-      const scale = 0.88 + 0.12 * e;
-      const opacity = clamp(p / 0.30, 0, 1);   // fade in over first 30% of phase
-      stage.style.setProperty('--card-scale', scale);
-      stage.style.setProperty('--card-opacity', opacity);
-    }
-  },
-  header:   { start: 0.20, end: 0.55, apply(p) {
-    const e = easeOutCubic(p);
-    stage.style.setProperty('--header-opacity', e);
-    stage.style.setProperty('--header-y', `${(1 - e) * 8}px`);
-  }},
-  headline: { start: 0.30, end: 0.70, apply(p) {
-    const e = easeOutCubic(p);
-    stage.style.setProperty('--headline-opacity', e);
-    stage.style.setProperty('--headline-y', `${(1 - e) * 14}px`);
-  }},
-  footer:   { start: 0.40, end: 0.78, apply(p) {
-    const e = easeOutCubic(p);
-    stage.style.setProperty('--footer-opacity', e);
-    stage.style.setProperty('--footer-y', `${(1 - e) * 8}px`);
-  }},
-};
+// ---------- animation params ----------
+const ENTRY_DUR = 0.60;     // seconds — fast in, slowing toward final size
+const EXIT_DUR  = 1.00;     // seconds — slow start, accelerating fall
+const ENTRY_ROT = -7;       // degrees on entry (rotates back to 0)
+const EXIT_ROT  = 12;       // degrees on exit (tilts in opposite direction)
+const FALL_PX   = 1700;     // pixels the card travels off-screen
+
+let TOTAL_DUR = 3.0;        // updated by Python via setTotalDur()
+
+function applyFrame(t) {
+  const exit_start = Math.max(ENTRY_DUR, TOTAL_DUR - EXIT_DUR);
+
+  let scale, rotate, opacity, ty;
+
+  if (t < ENTRY_DUR) {
+    // ---- entry: ease-out, scale 0.85→1, rotate -7→0, opacity 0→1 ----
+    const p = t / ENTRY_DUR;
+    const e = easeOutQuart(p);
+    scale = lerp(0.85, 1.00, e);
+    rotate = ENTRY_ROT * (1 - e);
+    opacity = clamp(t / 0.22, 0, 1);
+    ty = 0;
+  } else if (t < exit_start) {
+    // ---- hold ----
+    scale = 1.0;
+    rotate = 0;
+    opacity = 1;
+    ty = 0;
+  } else {
+    // ---- exit: ease-in (slow start, accelerating), falls down + tilts ----
+    const p = (t - exit_start) / EXIT_DUR;
+    const e = easeInCubic(p);
+    scale = lerp(1.0, 0.94, e);
+    rotate = EXIT_ROT * e;
+    ty = FALL_PX * e;
+    // fade out toward the end of the fall
+    opacity = clamp(1 - (p - 0.5) * 2.5, 0, 1);
+  }
+
+  stage.style.setProperty('--card-scale', scale);
+  stage.style.setProperty('--card-rotate', rotate + 'deg');
+  stage.style.setProperty('--card-opacity', opacity);
+  stage.style.setProperty('--card-translate-y', ty + 'px');
+
+  // staggered child fade-ins during entry
+  const headerP   = clamp((t - 0.18) / 0.40, 0, 1);
+  const headlineP = clamp((t - 0.28) / 0.45, 0, 1);
+  const footerP   = clamp((t - 0.38) / 0.40, 0, 1);
+  stage.style.setProperty('--header-opacity',   easeOutCubic(headerP));
+  stage.style.setProperty('--header-y',         (1 - easeOutCubic(headerP)) * 8 + 'px');
+  stage.style.setProperty('--headline-opacity', easeOutCubic(headlineP));
+  stage.style.setProperty('--headline-y',       (1 - easeOutCubic(headlineP)) * 14 + 'px');
+  stage.style.setProperty('--footer-opacity',   easeOutCubic(footerP));
+  stage.style.setProperty('--footer-y',         (1 - easeOutCubic(footerP)) * 8 + 'px');
+}
 
 const stage = document.getElementById('stage');
 
-// Apply the timeline at a given absolute time t (seconds).
-window.setTime = function(t) {
-  for (const k in TIMELINE) {
-    const ph = TIMELINE[k];
-    const p = clamp((t - ph.start) / (ph.end - ph.start), 0, 1);
-    ph.apply(p);
-  }
-};
-
-// Inject channel data + headline. Called once before frame capture.
+window.setTime     = function(t)   { applyFrame(t); };
+window.setTotalDur = function(dur) { TOTAL_DUR = dur; };
 window.setData = function(d) {
-  if (d.profile_url)  document.getElementById('stage').style.setProperty('--pfp-url', `url("${d.profile_url}")`);
+  if (d.reddit_url)   stage.style.setProperty('--reddit-url', `url("${d.reddit_url}")`);
+  if (d.profile_url)  stage.style.setProperty('--pfp-url',   `url("${d.profile_url}")`);
   if (d.display_name) document.getElementById('display-name').textContent = d.display_name;
-  if (d.handle)       document.getElementById('handle').textContent = d.handle;
-  if (d.headline)     document.getElementById('headline').textContent = d.headline;
-  document.getElementById('verified').style.display = d.verified ? 'block' : 'none';
+  if (d.headline)     document.getElementById('headline').textContent     = d.headline;
+  document.getElementById('verified-mini').style.display = d.verified ? 'block' : 'none';
 };
 
-// Park at t=0 by default so the first capture is the start of the animation.
+// Park at t=0 so the first capture is the start of the entry animation.
 window.setTime(0);
 </script>
 </body>

@@ -33,8 +33,9 @@ from app.config import (
 # ---------------------------------------------------------------- constants
 
 _TEMPLATE_FILE = Path(__file__).parent / "storiesandtexts" / "template.html"
-HEADLINE_MAX = 56
-HEADLINE_MIN = 36
+_REDDIT_ICON = ASSETS_DIR / "reddit-icon.png"
+HEADLINE_MAX = 64
+HEADLINE_MIN = 38
 
 
 # ---------------------------------------------------------------- helpers
@@ -73,16 +74,27 @@ def _build_html(headline_size: int) -> str:
 
 def _pick_headline_size(title: str) -> int:
     """Quick estimate of a font-size that fits the headline in the card.
-    Browser will do final layout; we just bias toward a clean look.
+    Browser does the final layout; this just biases toward a clean look.
 
-    Card inner width ≈ 824px (920 − 48*2). Inter Bold average char width at
-    size S is roughly 0.50 * S px. Want ~3 lines max, ~26-28 chars/line.
+    Card inner width ≈ 732px (820 − 44*2). At size S, Inter ExtraBold
+    average char width ≈ 0.52 * S px. We want ~3 lines max with ~22-26
+    chars per line at the larger sizes.
     """
     n = len(title)
-    if n <= 36: return HEADLINE_MAX
-    if n <= 60: return 50
-    if n <= 90: return 44
-    return HEADLINE_MIN
+    if n <= 32: return HEADLINE_MAX        # 64
+    if n <= 50: return 56
+    if n <= 70: return 50
+    if n <= 95: return 44
+    return HEADLINE_MIN                    # 38
+
+
+def _reddit_icon_url() -> str:
+    """Return a base64 data: URL for the bundled Reddit icon, or '' if
+    missing. Same approach as profile pic — keeps the page sandbox clean."""
+    if not _REDDIT_ICON.exists():
+        return ""
+    encoded = base64.b64encode(_REDDIT_ICON.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 # ---------------------------------------------------------------- render
@@ -98,6 +110,7 @@ def render(*, title: str, duration: float, channel: str, meta: dict, out_path: P
         "display_name": (meta.get("display_name") or "").strip(),
         "handle": (meta.get("handle") or "").strip(),
         "profile_url": profile_url,
+        "reddit_url": _reddit_icon_url(),
         "verified": bool(meta.get("verified")),
         "headline": title or "(no title)",
     }
@@ -128,6 +141,9 @@ def render(*, title: str, duration: float, channel: str, meta: dict, out_path: P
             # data: URL avoids filesystem permissions on the page
             page.set_content(html, wait_until="networkidle")
             page.evaluate("(d) => window.setData(d)", data_for_page)
+            # Tell the JS timeline how long the .mov is so it can place the
+            # exit animation in the last `EXIT_DUR` seconds.
+            page.evaluate(f"window.setTotalDur({duration})")
             # Give fonts a moment to settle
             page.wait_for_function("document.fonts.ready.then(() => true)")
 

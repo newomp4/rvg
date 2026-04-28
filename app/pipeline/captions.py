@@ -35,23 +35,32 @@ class WordOnScreen:
     end: float
 
 
-def merge_words(plain_words: list[Word], timed: list[TimedWord]) -> list[WordOnScreen]:
-    """Pair the color-tagged Words with the timed words from TTS.
+def _norm_word(s: str) -> str:
+    import re as _re
+    return _re.sub(r"[^a-z0-9]", "", s.lower())
 
-    Edge-tts emits one WordBoundary per spoken word in order, so we just
-    zip — when counts mismatch (rare, for hyphenated/contraction edge cases)
-    we fall back to assigning by index, padding with default colors.
+
+def merge_words(plain_words: list[Word], timed: list[TimedWord]) -> list[WordOnScreen]:
+    """Pair color-tagged Words with timed words by walking both lists.
+
+    Index-zipping breaks when silence-removal drops words from the middle
+    of the story: every subsequent color shifts onto the wrong word. We
+    instead walk plain_words in order and, for each, advance through timed
+    until we find a text match. plain_words that don't match any timed
+    entry (i.e. were dropped by silence removal) get no caption.
     """
     out: list[WordOnScreen] = []
-    n = min(len(plain_words), len(timed))
-    for i in range(n):
-        w = plain_words[i]
-        t = timed[i]
-        out.append(WordOnScreen(text=w.text, color=w.color, start=t.start, end=t.end))
-    # any extra timed words (shouldn't happen often) — show with default color
-    for i in range(n, len(timed)):
-        out.append(WordOnScreen(text=timed[i].text, color="#ffffff",
-                                start=timed[i].start, end=timed[i].end))
+    j = 0
+    for w in plain_words:
+        target = _norm_word(w.text)
+        while j < len(timed) and _norm_word(timed[j].text) != target:
+            j += 1
+        if j >= len(timed):
+            break                       # ran out of timed audio for this word
+        t = timed[j]
+        out.append(WordOnScreen(text=w.text, color=w.color,
+                                start=t.start, end=t.end))
+        j += 1
     return out
 
 
