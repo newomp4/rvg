@@ -200,11 +200,12 @@ class MainWindow(QMainWindow):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(14)
 
-        title = QLabel("RVG")
-        title.setProperty("h", "1")
+        header = QLabel("RVG")
+        header.setProperty("h", "1")
         sub = QLabel("Reddit-style video generator")
         sub.setProperty("muted", "true")
-        col.addWidget(title); col.addWidget(sub)
+        col.addWidget(header); col.addWidget(sub)
+        col.addSpacing(4)
 
         # Channel
         self.channel_btns = QButtonGroup(self)
@@ -214,7 +215,7 @@ class MainWindow(QMainWindow):
         # Title (Reddit question text)
         self.title_in = QLineEdit()
         self.title_in.setPlaceholderText("e.g. AITA for refusing to switch seats on a flight?")
-        self.title_gen_btn = QPushButton("generate")
+        self.title_gen_btn = QPushButton("✨ generate")
         self.title_gen_btn.setProperty("role", "ghost")
         self.title_gen_btn.setToolTip(
             "Generate a Reddit-style title from the story body using Claude.\n"
@@ -231,19 +232,23 @@ class MainWindow(QMainWindow):
             "Paste your story here. Wrap emotional words with color tags:\n"
             "  I got into a {red}car crash{/red} and {green}threw up{/green} everywhere."
         )
-        self.story_in.setMinimumHeight(180)
+        self.story_in.setMinimumHeight(260)
         self._story_hi = StoryHighlighter(self.story_in.document())
-        # quick-insert color buttons
+        # quick-insert color buttons (highlight a selection, then click a color)
         tag_row = QHBoxLayout()
-        tag_row.addWidget(QLabel("wrap selection:"))
+        tag_row.setSpacing(6)
         for name in ("red", "green", "blue", "yellow", "orange", "purple", "pink"):
-            b = QPushButton(name)
+            b = QPushButton("●")
+            b.setFixedSize(28, 28)
             b.setProperty("role", "ghost")
-            b.setStyleSheet(f"color: {COLOR_PALETTE[name]};")
+            b.setToolTip(f"wrap selection in {{{name}}}…{{/{name}}}")
+            b.setStyleSheet(
+                f"QPushButton {{ color: {COLOR_PALETTE[name]}; "
+                f"font-size: 18px; padding: 0; border-radius: 14px; }}")
             b.clicked.connect(lambda _=False, n=name: self._wrap_tag(n))
             tag_row.addWidget(b)
         tag_row.addStretch(1)
-        self.story_gen_btn = QPushButton("generate story")
+        self.story_gen_btn = QPushButton("✨ generate story")
         self.story_gen_btn.setProperty("role", "ghost")
         self.story_gen_btn.setToolTip(
             "Generate a fresh Reddit-style story using Claude Code. "
@@ -299,7 +304,12 @@ class MainWindow(QMainWindow):
 
         # Captions
         self.cap_font = QComboBox()
-        for fam in QFontDatabase.families():
+        # Curated list — bundled fonts first, then a few common system options.
+        # The full system list is available behind the editable combo (user can
+        # type any family name and it'll be used).
+        self.cap_font.setEditable(True)
+        for fam in ("Rubik", "Inter", "Helvetica", "Arial",
+                    "SF Pro Display", "Impact", "Montserrat"):
             self.cap_font.addItem(fam)
         self.cap_size  = QSpinBox(); self.cap_size.setRange(24, 220)
         self.cap_weight = QComboBox(); self.cap_weight.addItems(["Regular", "Bold", "Black"])
@@ -339,8 +349,10 @@ class MainWindow(QMainWindow):
         rcol.setContentsMargins(0, 0, 0, 0)
         rcol.setSpacing(14)
 
-        rcol.addWidget(QLabel("logo / watermark", styleSheet="font-weight:600;"))
-        helper = QLabel("drag a PNG into the frame, or click choose. drag to move (snaps to center / thirds), use the slider to resize.")
+        rlabel = QLabel("LOGO / WATERMARK")
+        rlabel.setProperty("h", "3")
+        rcol.addWidget(rlabel)
+        helper = QLabel("drag a PNG onto the frame (or click choose). drag to move — snaps to center / thirds. slider resizes.")
         helper.setProperty("muted", "true"); helper.setWordWrap(True)
         rcol.addWidget(helper)
 
@@ -365,7 +377,9 @@ class MainWindow(QMainWindow):
         self.output_name = QLineEdit("output.mp4")
         self.render_btn = QPushButton("render video")
         self.render_btn.setProperty("role", "primary")
-        self.render_btn.setMinimumHeight(40)
+        self.render_btn.setMinimumHeight(48)
+        f = self.render_btn.font(); f.setPointSize(15); f.setWeight(QFont.Weight.Bold)
+        self.render_btn.setFont(f)
         self.open_output = QPushButton("open output folder")
         self.open_output.setProperty("role", "ghost")
 
@@ -665,8 +679,20 @@ class MainWindow(QMainWindow):
             self._thread = None
 
 
+def _load_bundled_fonts():
+    """Register the Rubik fonts shipped in assets/fonts/ so the UI can use
+    them without depending on a system install. The same files back the
+    caption renderer; one source of truth."""
+    fonts_dir = ASSETS_DIR / "fonts"
+    if not fonts_dir.is_dir():
+        return
+    for f in fonts_dir.glob("*.ttf"):
+        QFontDatabase.addApplicationFont(str(f))
+
+
 def launch():
     app = QApplication(sys.argv)
+    _load_bundled_fonts()
     app.setStyleSheet(QSS)
     # dark palette to match QSS for native widgets that don't honor stylesheets
     pal = app.palette()

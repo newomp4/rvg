@@ -161,38 +161,155 @@ _TOKEN_RE = re.compile(r"\S+")
 
 
 def _word_timings_for(wav_path: Path, expected_text: str) -> List[TimedWord]:
-    """Run whisper-timestamped on the generated audio and pair each detected
-    word with the corresponding word from `expected_text`. Detected words
-    almost always match the typed words (we just generated them) but when
-    they drift we fall back to proportional distribution."""
+    """Run whisper-timestamped on the generated audio and pair each typed
+    word with the right detected word, accounting for two real failure modes:
+      1. Whisper hallucinates extra words past the end of audio (especially
+         on the trailing silence) — those have timestamps > audio_dur and
+         must be dropped before pairing.
+      2. Whisper occasionally misses a word, splits one (e.g. "I'd" ->
+         "I", "would"), or merges two. We DTW-align the typed sequence
+         against the detected sequence on lowercased-stripped tokens so
+         each typed word picks up the timing of its best match.
+    """
     import whisper_timestamped as wt
+    import soundfile as sf
     model = _load_whisper()
     audio = wt.load_audio(str(wav_path))
-    result = wt.transcribe(model, audio, language="en", verbose=False, vad=False)
+    # condition_on_previous_text=False prevents whisper from looping its own
+    # output back into the prompt for later segments, which is what was
+    # causing the trailing-hallucination dump.
+    result = wt.transcribe(
+        model, audio, language="en", verbose=False, vad=False,
+        condition_on_previous_text=False,
+    )
+
+    audio_arr, sr = sf.read(str(wav_path))
+    audio_dur = len(audio_arr) / sr
 
     detected: list[tuple[str, float, float]] = []
     for seg in result.get("segments", []):
         for w in seg.get("words", []) or []:
-            detected.append((str(w.get("text", "")).strip(),
-                             float(w.get("start", 0.0)),
-                             float(w.get("end", 0.0))))
+            s = float(w.get("start", 0.0))
+            e = float(w.get("end", 0.0))
+            txt = str(w.get("text", "")).strip()
+            # drop whisper hallucinations past the audio's actual length
+            if e > audio_dur + 0.1 or s > audio_dur:
+                continue
+            if not txt:
+                continue
+            detected.append((txt, s, min(e, audio_dur)))
 
     expected_words = _TOKEN_RE.findall(expected_text)
-
-    if not detected or not expected_words:
+    if not expected_words:
+        return []
+    if not detected:
         return _proportional_fallback(expected_words, wav_path)
 
-    if len(detected) == len(expected_words):
-        return [TimedWord(text=ew, start=s, end=e)
-                for ew, (_, s, e) in zip(expected_words, detected)]
+    return _dtw_pair(expected_words, detected, audio_dur)
 
-    # mismatch: align by proportional index
-    n_e, n_d = len(expected_words), len(detected)
+
+def _norm(tok: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", tok.lower())
+
+
+def _dtw_pair(expected: list[str], detected: list[tuple[str, float, float]],
+              audio_dur: float) -> List[TimedWord]:
+    """Sequence-align expected vs detected tokens with a small DP, then
+    fill timings for unmatched expected tokens by interpolating between
+    their matched neighbors. Robust to drops, splits, and merges."""
+    n, m = len(expected), len(detected)
+    exp_n = [_norm(t) for t in expected]
+    det_n = [_norm(t) for t, _, _ in detected]
+
+    # DP: best (matches, -mismatches) score taking either skip-expected,
+    # skip-detected, or match-current-pair. Standard Needleman–Wunsch.
+    INF = -10**9
+    dp = [[(INF, INF)] * (m + 1) for _ in range(n + 1)]
+    dp[0][0] = (0, 0)
+    for i in range(n + 1):
+        for j in range(m + 1):
+            if i == 0 and j == 0:
+                continue
+            cands = []
+            if i > 0 and j > 0:
+                a, b = dp[i - 1][j - 1]
+                if a > INF:
+                    if exp_n[i - 1] and exp_n[i - 1] == det_n[j - 1]:
+                        cands.append((a + 2, b))           # exact match: +2
+                    elif exp_n[i - 1] and det_n[j - 1] and (
+                        exp_n[i - 1].startswith(det_n[j - 1][:3]) or
+                        det_n[j - 1].startswith(exp_n[i - 1][:3])
+                    ):
+                        cands.append((a + 1, b))           # near-match: +1
+                    else:
+                        cands.append((a, b - 1))           # mismatch
+            if i > 0:                                       # skip expected
+                a, b = dp[i - 1][j]
+                if a > INF:
+                    cands.append((a, b - 1))
+            if j > 0:                                       # skip detected
+                a, b = dp[i][j - 1]
+                if a > INF:
+                    cands.append((a, b - 1))
+            if cands:
+                dp[i][j] = max(cands)
+
+    # backtrack to find which detected index each expected[i] aligned to
+    pair: list[int | None] = [None] * n
+    i, j = n, m
+    while i > 0 and j > 0:
+        cur = dp[i][j]
+        # try diagonal
+        if i > 0 and j > 0:
+            prev = dp[i - 1][j - 1]
+            if prev[0] > INF:
+                if exp_n[i - 1] and exp_n[i - 1] == det_n[j - 1]:
+                    if cur == (prev[0] + 2, prev[1]):
+                        pair[i - 1] = j - 1
+                        i -= 1; j -= 1; continue
+                elif exp_n[i - 1] and det_n[j - 1] and (
+                    exp_n[i - 1].startswith(det_n[j - 1][:3]) or
+                    det_n[j - 1].startswith(exp_n[i - 1][:3])
+                ):
+                    if cur == (prev[0] + 1, prev[1]):
+                        pair[i - 1] = j - 1
+                        i -= 1; j -= 1; continue
+                if cur == (prev[0], prev[1] - 1):
+                    pair[i - 1] = j - 1
+                    i -= 1; j -= 1; continue
+        if i > 0 and dp[i - 1][j][0] > INF and cur == (dp[i - 1][j][0], dp[i - 1][j][1] - 1):
+            i -= 1; continue                                # skipped expected[i-1]
+        if j > 0 and dp[i][j - 1][0] > INF and cur == (dp[i][j - 1][0], dp[i][j - 1][1] - 1):
+            j -= 1; continue                                # skipped detected[j-1]
+        break
+
+    # build output, interpolating timings for unmatched expected tokens
     out: list[TimedWord] = []
-    for i, ew in enumerate(expected_words):
-        j = min(n_d - 1, int(i * n_d / n_e))
-        _, s, e = detected[j]
-        out.append(TimedWord(text=ew, start=s, end=e))
+    last_end = 0.0
+    for i in range(n):
+        if pair[i] is not None:
+            _, s, e = detected[pair[i]]
+            out.append(TimedWord(text=expected[i], start=max(s, last_end), end=e))
+            last_end = e
+        else:
+            # find next matched index
+            nxt = next((k for k in range(i + 1, n) if pair[k] is not None), None)
+            if nxt is not None:
+                next_s = detected[pair[nxt]][1]
+                gap = max(1, nxt - i + 1)
+                step = (next_s - last_end) / gap
+                s = last_end
+                e = last_end + step
+                out.append(TimedWord(text=expected[i], start=s, end=e))
+                last_end = e
+            else:
+                # tail: spread remaining expected over the rest of the audio
+                remaining = n - i
+                step = max(0.05, (audio_dur - last_end) / remaining)
+                out.append(TimedWord(text=expected[i],
+                                     start=last_end,
+                                     end=min(audio_dur, last_end + step)))
+                last_end = min(audio_dur, last_end + step)
     return out
 
 

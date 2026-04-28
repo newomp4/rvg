@@ -42,15 +42,15 @@ DEFAULT_CAPTION_COLOR = "#ffffff"
 
 @dataclass
 class CaptionStyle:
-    font_family: str = "Helvetica"
-    font_size: int = 96
+    font_family: str = "Rubik"
+    font_size: int = 104
     font_weight: str = "Bold"            # "Regular" | "Bold" | "Black"
     stroke_color: str = "#000000"
-    stroke_width: int = 8
+    stroke_width: int = 10
     shadow_color: str = "#000000"
-    shadow_offset: Tuple[int, int] = (0, 6)
-    shadow_blur: int = 12
-    shadow_opacity: float = 0.6
+    shadow_offset: Tuple[int, int] = (0, 8)
+    shadow_blur: int = 16
+    shadow_opacity: float = 0.75
     default_color: str = DEFAULT_CAPTION_COLOR
     uppercase: bool = True
     pop_scale: float = 1.10              # words pop in slightly bigger then settle

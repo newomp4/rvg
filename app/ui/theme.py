@@ -4,20 +4,20 @@ The whole UI is a single QSS string. Apply with `app.setStyleSheet(QSS)` in
 main_window. Keeping it in one place makes it easy to retune later.
 """
 
-BG       = "#0a0a0a"
-SURFACE  = "#141414"
-SURFACE2 = "#1c1c1c"
-BORDER   = "#262626"
-BORDER2  = "#333333"
-TEXT     = "#f0f0f0"
-MUTED    = "#888888"
-HOVER    = "#222222"
-ACTIVE   = "#2c2c2c"
+BG       = "#0b0b0d"
+SURFACE  = "#15161a"
+SURFACE2 = "#1d1e22"
+BORDER   = "#2a2b30"
+BORDER2  = "#3a3b41"
+TEXT     = "#f4f4f5"
+MUTED    = "#8a8b91"
+HOVER    = "#252630"
+ACTIVE   = "#30313a"
 
 QSS = f"""
 * {{
     color: {TEXT};
-    font-family: "SF Pro Text", "Helvetica Neue", "Helvetica", Arial, sans-serif;
+    font-family: "Rubik", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
     font-size: 13px;
     selection-background-color: #ffffff;
     selection-color: #000000;
@@ -27,14 +27,15 @@ QMainWindow, QWidget {{ background: {BG}; }}
 
 QLabel {{ background: transparent; color: {TEXT}; }}
 QLabel[muted="true"] {{ color: {MUTED}; }}
-QLabel[h="1"] {{ font-size: 18px; font-weight: 700; }}
-QLabel[h="2"] {{ font-size: 14px; font-weight: 600; color: {TEXT}; }}
-QLabel[h="3"] {{ font-size: 11px; font-weight: 600; color: {MUTED}; letter-spacing: 1px; }}
+QLabel[h="1"] {{ font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }}
+QLabel[h="2"] {{ font-size: 15px; font-weight: 600; color: {TEXT}; }}
+QLabel[h="3"] {{ font-size: 10.5px; font-weight: 600; color: {MUTED};
+                  letter-spacing: 1.4px; }}
 
 QFrame[role="card"] {{
     background: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 10px;
+    border-radius: 12px;
 }}
 
 QFrame[role="divider"] {{
@@ -48,7 +49,7 @@ QPushButton {{
     background: {SURFACE2};
     border: 1px solid {BORDER};
     border-radius: 8px;
-    padding: 8px 16px;
+    padding: 8px 14px;
     color: {TEXT};
     font-weight: 500;
 }}
@@ -58,17 +59,20 @@ QPushButton:disabled {{ color: {MUTED}; border-color: {BORDER}; }}
 
 QPushButton[role="primary"] {{
     background: {TEXT};
-    color: #000000;
+    color: #0a0a0a;
     border: 1px solid {TEXT};
     font-weight: 600;
+    padding: 10px 18px;
 }}
-QPushButton[role="primary"]:hover {{ background: #d8d8d8; border-color: #d8d8d8; }}
+QPushButton[role="primary"]:hover {{ background: #ffffff; border-color: #ffffff; }}
 QPushButton[role="primary"]:disabled {{ background: {BORDER2}; color: {MUTED}; border-color: {BORDER2}; }}
 
 QPushButton[role="ghost"] {{
     background: transparent;
     border: 1px solid {BORDER};
+    padding: 6px 12px;
 }}
+QPushButton[role="ghost"]:hover {{ background: {HOVER}; border-color: {BORDER2}; }}
 
 QPushButton[role="tab"] {{
     background: transparent;
@@ -88,17 +92,18 @@ QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
     background: {SURFACE2};
     border: 1px solid {BORDER};
     border-radius: 8px;
-    padding: 6px 10px;
+    padding: 7px 10px;
     color: {TEXT};
     selection-background-color: #ffffff;
     selection-color: #000000;
 }}
+QPlainTextEdit, QTextEdit {{ padding: 10px 12px; }}
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
 QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
     border-color: {TEXT};
 }}
 
-QComboBox::drop-down {{ border: none; width: 20px; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox QAbstractItemView {{
     background: {SURFACE};
     border: 1px solid {BORDER};
@@ -127,7 +132,8 @@ QProgressBar {{
     border-radius: 6px;
     text-align: center;
     color: {TEXT};
-    height: 18px;
+    height: 20px;
+    font-weight: 500;
 }}
 QProgressBar::chunk {{ background: {TEXT}; border-radius: 5px; }}
 
@@ -157,11 +163,11 @@ QToolTip {{
     background: {SURFACE};
     color: {TEXT};
     border: 1px solid {BORDER2};
-    padding: 6px 8px;
+    padding: 6px 10px;
     border-radius: 6px;
 }}
 
-QGraphicsView {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 8px; }}
+QGraphicsView {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 10px; }}
 
 QStatusBar {{ background: {SURFACE}; color: {MUTED}; border-top: 1px solid {BORDER}; }}
 """

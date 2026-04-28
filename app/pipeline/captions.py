@@ -21,7 +21,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from app.config import (
-    FFMPEG, OUTPUT_W, OUTPUT_H, OUTPUT_FPS, CaptionStyle,
+    FFMPEG, OUTPUT_W, OUTPUT_H, OUTPUT_FPS, CaptionStyle, ASSETS_DIR,
 )
 from app.pipeline.tts import TimedWord
 from app.pipeline.story import Word
@@ -61,7 +61,11 @@ def merge_words(plain_words: list[Word], timed: list[TimedWord]) -> list[WordOnS
 # platforms; on macOS we walk the standard font directories.
 import os
 
+# Project-bundled fonts come first so the default Rubik works on any machine
+# without depending on system fonts. System dirs follow as a fallback for
+# users who pick a non-bundled family in the UI.
 _FONT_DIRS = [
+    str(ASSETS_DIR / "fonts"),
     "/System/Library/Fonts",
     "/System/Library/Fonts/Supplemental",
     "/Library/Fonts",
@@ -69,24 +73,32 @@ _FONT_DIRS = [
 ]
 
 
-def _find_font_file(family: str, weight: str) -> str | None:
-    targets = []
+def _find_font_file(family: str, weight: str) -> tuple[str, bool] | tuple[None, None]:
+    """Return (path, is_variable). Variable fonts are matched by family
+    name alone; the weight is applied via set_variation_by_name."""
     fam = family.replace(" ", "")
-    if weight.lower() in ("bold", "black"):
-        targets += [f"{fam}-Bold.ttf", f"{fam}-Bold.otf", f"{fam}Bold.ttf",
-                    f"{fam}-Black.ttf", f"{fam}-Heavy.ttf"]
-    targets += [f"{fam}.ttf", f"{fam}.otf", f"{fam}-Regular.ttf"]
-    # Helvetica special-case: macOS ships a TTC
+    bold = weight.lower() in ("bold", "black", "semibold", "medium")
+    static_targets = []
+    if bold:
+        static_targets += [f"{fam}-Bold.ttf", f"{fam}-Bold.otf", f"{fam}Bold.ttf",
+                           f"{fam}-Black.ttf", f"{fam}-Heavy.ttf"]
+    static_targets += [f"{fam}.ttf", f"{fam}.otf", f"{fam}-Regular.ttf"]
     if fam.lower() == "helvetica":
-        targets = ["Helvetica.ttc"] + targets
+        static_targets = ["Helvetica.ttc"] + static_targets
+
+    # Variable-font names live as plain {Family}.ttf — look for them first
+    # in the project assets dir so our bundled Rubik VF wins.
+    variable_targets = [f"{fam}.ttf", f"{fam}-VF.ttf", f"{fam}[wght].ttf"]
 
     for d in _FONT_DIRS:
         if not os.path.isdir(d):
             continue
         for name in os.listdir(d):
-            if name in targets:
-                return os.path.join(d, name)
-    return None
+            if name in static_targets:
+                return os.path.join(d, name), False
+            if name in variable_targets:
+                return os.path.join(d, name), True
+    return None, None
 
 
 _FONT_CACHE: dict[tuple, ImageFont.FreeTypeFont] = {}
@@ -96,10 +108,23 @@ def _load_font(family: str, weight: str, size: int) -> ImageFont.FreeTypeFont:
     key = (family, weight, size)
     if key in _FONT_CACHE:
         return _FONT_CACHE[key]
-    path = _find_font_file(family, weight) or _find_font_file("Helvetica", weight) \
-        or "/System/Library/Fonts/Helvetica.ttc"
+    path, is_var = _find_font_file(family, weight)
+    if path is None:
+        # fall back to bundled Rubik, then macOS Helvetica
+        path, is_var = _find_font_file("Rubik", weight)
+    if path is None:
+        path = "/System/Library/Fonts/Helvetica.ttc"; is_var = False
     try:
         f = ImageFont.truetype(path, size=size)
+        if is_var:
+            try:
+                # Map our weight names onto the variable font's named instances.
+                axis_name = {"regular": "Regular", "bold": "Bold",
+                             "black": "Black", "medium": "Medium",
+                             "semibold": "SemiBold"}.get(weight.lower(), "Bold")
+                f.set_variation_by_name(axis_name)
+            except Exception:
+                pass
     except Exception:
         f = ImageFont.load_default()
     _FONT_CACHE[key] = f
