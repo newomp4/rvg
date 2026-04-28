@@ -13,3 +13,5 @@ soundfile>=0.12
 # Headless Chromium for rendering the title card as a real motion graphic
 # (HTML/CSS animations + per-frame screenshots) instead of PIL per-frame.
 playwright>=1.45
+# Anthropic API client for the "generate title" button.
+anthropic>=0.40

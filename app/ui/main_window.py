@@ -29,6 +29,7 @@ from app.ui.theme import QSS
 from app.ui.logo_canvas import LogoCanvas
 from app.pipeline.orchestrator import render as run_pipeline
 from app.pipeline.tts import PRESET_VOICES_EN
+from app.pipeline.titles import generate_title, TitleError
 
 
 # ---- worker thread ----------------------------------------------------------
@@ -46,6 +47,23 @@ class RenderWorker(QObject):
         try:
             out = run_pipeline(self._settings, progress=lambda m, f: self.progress.emit(m, f))
             self.done.emit(str(out))
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+
+
+class TitleWorker(QObject):
+    done = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, story: str):
+        super().__init__()
+        self._story = story
+
+    def run(self):
+        try:
+            self.done.emit(generate_title(self._story))
+        except TitleError as e:
+            self.failed.emit(str(e))
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -179,7 +197,16 @@ class MainWindow(QMainWindow):
         # Title (Reddit question text)
         self.title_in = QLineEdit()
         self.title_in.setPlaceholderText("e.g. AITA for refusing to switch seats on a flight?")
-        col.addWidget(card(self.title_in, title="reddit question (title card text)"))
+        self.title_gen_btn = QPushButton("generate")
+        self.title_gen_btn.setProperty("role", "ghost")
+        self.title_gen_btn.setToolTip(
+            "Generate a Reddit-style title from the story body using Claude.\n"
+            "Requires ANTHROPIC_API_KEY in your shell environment.")
+        self.title_gen_btn.clicked.connect(self._generate_title_clicked)
+        col.addWidget(card(
+            row(self.title_in, self.title_gen_btn),
+            title="reddit question (title card text)",
+        ))
 
         # Story
         self.story_in = QPlainTextEdit()
@@ -462,6 +489,38 @@ class MainWindow(QMainWindow):
             c.insertText(f"{{{name}}}{sel}{{/{name}}}")
         else:
             self.story_in.insertPlainText(f"{{{name}}}{{/{name}}}")
+
+    def _generate_title_clicked(self):
+        story = self.story_in.toPlainText().strip()
+        if not story:
+            QMessageBox.warning(self, "no story",
+                                "write a story first — the title is generated from it.")
+            return
+        self.title_gen_btn.setEnabled(False)
+        self.title_gen_btn.setText("generating…")
+        self._title_thread = QThread(self)
+        self._title_worker = TitleWorker(story)
+        self._title_worker.moveToThread(self._title_thread)
+        self._title_thread.started.connect(self._title_worker.run)
+        self._title_worker.done.connect(self._on_title_done)
+        self._title_worker.failed.connect(self._on_title_failed)
+        self._title_thread.start()
+
+    def _on_title_done(self, title: str):
+        self.title_in.setText(title)
+        self._reset_title_btn()
+
+    def _on_title_failed(self, msg: str):
+        QMessageBox.warning(self, "title generation failed", msg)
+        self._reset_title_btn()
+
+    def _reset_title_btn(self):
+        self.title_gen_btn.setEnabled(True)
+        self.title_gen_btn.setText("generate")
+        if getattr(self, "_title_thread", None):
+            self._title_thread.quit(); self._title_thread.wait()
+            self._title_thread = None
+            self._title_worker = None
 
     def _pick_clips_dir(self):
         d = QFileDialog.getExistingDirectory(self, "select clips folder",
