@@ -29,7 +29,7 @@ from app.ui.theme import QSS
 from app.ui.logo_canvas import LogoCanvas
 from app.pipeline.orchestrator import render as run_pipeline
 from app.pipeline.tts import PRESET_VOICES_EN
-from app.pipeline.titles import generate_title, TitleError
+from app.pipeline.generation import generate_title, generate_story, GenError
 
 
 # ---- worker thread ----------------------------------------------------------
@@ -62,7 +62,24 @@ class TitleWorker(QObject):
     def run(self):
         try:
             self.done.emit(generate_title(self._story))
-        except TitleError as e:
+        except GenError as e:
+            self.failed.emit(str(e))
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+
+
+class StoryWorker(QObject):
+    done = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, hint: str):
+        super().__init__()
+        self._hint = hint
+
+    def run(self):
+        try:
+            self.done.emit(generate_story(self._hint))
+        except GenError as e:
             self.failed.emit(str(e))
         except Exception:
             self.failed.emit(traceback.format_exc())
@@ -201,7 +218,7 @@ class MainWindow(QMainWindow):
         self.title_gen_btn.setProperty("role", "ghost")
         self.title_gen_btn.setToolTip(
             "Generate a Reddit-style title from the story body using Claude.\n"
-            "Requires ANTHROPIC_API_KEY in your shell environment.")
+            "Uses your local Claude Code CLI — no API key needed.")
         self.title_gen_btn.clicked.connect(self._generate_title_clicked)
         col.addWidget(card(
             row(self.title_in, self.title_gen_btn),
@@ -226,6 +243,13 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _=False, n=name: self._wrap_tag(n))
             tag_row.addWidget(b)
         tag_row.addStretch(1)
+        self.story_gen_btn = QPushButton("generate story")
+        self.story_gen_btn.setProperty("role", "ghost")
+        self.story_gen_btn.setToolTip(
+            "Generate a fresh Reddit-style story using Claude Code. "
+            "Replaces the current story content.")
+        self.story_gen_btn.clicked.connect(self._generate_story_clicked)
+        tag_row.addWidget(self.story_gen_btn)
         col.addWidget(card(self.story_in, tag_row, title="story"))
 
         # Voice — Qwen3-TTS preset voices, no reference clip required.
@@ -521,6 +545,40 @@ class MainWindow(QMainWindow):
             self._title_thread.quit(); self._title_thread.wait()
             self._title_thread = None
             self._title_worker = None
+
+    def _generate_story_clicked(self):
+        if self.story_in.toPlainText().strip():
+            res = QMessageBox.question(
+                self, "replace story?",
+                "This will replace the current story with a freshly generated "
+                "one. Continue?")
+            if res != QMessageBox.StandardButton.Yes:
+                return
+        self.story_gen_btn.setEnabled(False)
+        self.story_gen_btn.setText("generating…")
+        self._story_thread = QThread(self)
+        self._story_worker = StoryWorker("")
+        self._story_worker.moveToThread(self._story_thread)
+        self._story_thread.started.connect(self._story_worker.run)
+        self._story_worker.done.connect(self._on_story_done)
+        self._story_worker.failed.connect(self._on_story_failed)
+        self._story_thread.start()
+
+    def _on_story_done(self, story: str):
+        self.story_in.setPlainText(story)
+        self._reset_story_btn()
+
+    def _on_story_failed(self, msg: str):
+        QMessageBox.warning(self, "story generation failed", msg)
+        self._reset_story_btn()
+
+    def _reset_story_btn(self):
+        self.story_gen_btn.setEnabled(True)
+        self.story_gen_btn.setText("generate story")
+        if getattr(self, "_story_thread", None):
+            self._story_thread.quit(); self._story_thread.wait()
+            self._story_thread = None
+            self._story_worker = None
 
     def _pick_clips_dir(self):
         d = QFileDialog.getExistingDirectory(self, "select clips folder",
