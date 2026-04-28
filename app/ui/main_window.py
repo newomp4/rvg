@@ -213,10 +213,23 @@ class MainWindow(QMainWindow):
             "auto-editor's --margin. Higher = less aggressive silence cutting.\n"
             "0.4s for TTS (default), 0.2s for human narration with hesitations,\n"
             "1s+ to effectively skip silence removal.")
+        self.voice_seed = QSpinBox()
+        self.voice_seed.setRange(0, 9_999_999)
+        self.voice_seed.setValue(1)
+        self.voice_seed.setToolTip(
+            "PRNG seed for the TTS sampler. Same seed + same text = identical "
+            "audio. If a render sounds glitchy, click re-roll to try a "
+            "different sequence.")
+        self.voice_reroll_btn = QPushButton("re-roll")
+        self.voice_reroll_btn.setProperty("role", "ghost")
+        self.voice_reroll_btn.setToolTip("Increment the seed for a fresh take.")
+        self.voice_reroll_btn.clicked.connect(
+            lambda: self.voice_seed.setValue(self.voice_seed.value() + 1))
         col.addWidget(card(
             labeled("voice", self.voice_box),
             labeled("style prompt", self.voice_instruct),
             labeled("silence margin", self.silence_margin),
+            labeled("seed", row(self.voice_seed, self.voice_reroll_btn)),
             title="voice (qwen3-tts)"
         ))
 
@@ -379,6 +392,7 @@ class MainWindow(QMainWindow):
             self.voice_box.setCurrentIndex(idx)
         self.voice_instruct.setText(s.voice_instruct)
         self.silence_margin.setText(s.silence_margin)
+        self.voice_seed.setValue(int(s.voice_seed))
         self.clips_dir_in.setText(s.clips_dir)
         self.seg_min.setValue(s.seg_min_s)
         self.seg_max.setValue(s.seg_max_s)
@@ -415,6 +429,7 @@ class MainWindow(QMainWindow):
         s.voice = self.voice_box.currentData() or "Aiden"
         s.voice_instruct = self.voice_instruct.text().strip()
         s.silence_margin = self.silence_margin.text().strip() or "0.4s"
+        s.voice_seed = int(self.voice_seed.value())
         s.clips_dir = self.clips_dir_in.text().strip() or str(CLIPS_DIR_DEFAULT)
         s.seg_min_s = float(self.seg_min.value())
         s.seg_max_s = float(self.seg_max.value())

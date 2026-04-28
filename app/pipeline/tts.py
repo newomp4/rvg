@@ -108,6 +108,7 @@ def synthesize(
     voice_ref_path: Optional[str] = None,
     voice_ref_text: Optional[str] = None,
     instruct: Optional[str] = None,
+    seed: int = 1,
 ) -> List[TimedWord]:
     """Generate speech for `text`, write to `out_wav`, return word timings.
 
@@ -123,8 +124,14 @@ def synthesize(
         voice_ref_text: required if voice_ref_path is set — exact transcript
             of the reference clip.
         instruct: optional style prompt, e.g. "say it cheerfully".
+        seed: PRNG seed. Qwen3-TTS samples codec tokens stochastically
+            (temperature=0.9 default) so each render rolls a different
+            sequence; bad rolls produce audible glitches. Locking the seed
+            makes a story render reproducibly. Bump to a different value to
+            re-roll if a particular seed sounds bad on a particular story.
     """
     import soundfile as sf
+    import torch
 
     model = _load_qwen()
     speaker = (voice or DEFAULT_VOICE).strip() or DEFAULT_VOICE
@@ -137,6 +144,7 @@ def synthesize(
     if instruct:
         kwargs["instruct"] = instruct
 
+    torch.manual_seed(int(seed))
     wavs, sr = model.generate_custom_voice(**kwargs)
     audio = wavs[0]
     if hasattr(audio, "detach"):                 # torch tensor → numpy

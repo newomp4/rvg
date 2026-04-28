@@ -74,6 +74,9 @@ class RenderSettings:
     # Qwen3-TTS preset voice name (Aiden / Ryan). No reference clip needed.
     voice: str = "Aiden"
     voice_instruct: str = ""                # optional style prompt e.g. "say it casually"
+    # Qwen3-TTS samples codec tokens stochastically; locking the seed makes a
+    # render reproducible. Bump this value to re-roll if a story sounds glitchy.
+    voice_seed: int = 1
     # auto-editor silence-removal margin. Higher = less aggressive cutting.
     # 0.4s is right for TTS, 0.2s for human narration with hesitations.
     silence_margin: str = "0.4s"

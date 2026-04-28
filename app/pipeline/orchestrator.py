@@ -44,6 +44,7 @@ def render(settings: RenderSettings, progress: ProgressFn | None = None) -> Path
         out_wav=raw_wav,
         voice=settings.voice,
         instruct=(settings.voice_instruct or None),
+        seed=settings.voice_seed,
     )
     if not timed:
         raise RuntimeError("TTS returned no word timings")
