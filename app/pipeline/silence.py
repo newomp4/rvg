@@ -50,14 +50,46 @@ def _auto_editor_timeline(audio_in: Path, v3_out: Path, margin: str) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
-def _auto_editor_render(audio_in: Path, audio_out: Path, margin: str) -> None:
-    """Render the trimmed audio with the same margin as the timeline."""
+def _ffmpeg_cut_lossless(audio_in: Path, audio_out: Path,
+                         kept: list["KeptSegment"]) -> None:
+    """Build the trimmed audio by concatenating kept segments via ffmpeg,
+    losslessly (pcm_s16le passthrough). We DON'T let auto-editor render the
+    audio because it routes the file through a lossy intermediate codec
+    even when no cuts are made — that re-encode mangles TTS waveforms and
+    sounds glitchy/robotic in the final mix."""
+    if not kept:
+        raise RuntimeError("no kept segments — nothing to render")
+
+    if len(kept) == 1 and kept[0].src_start == 0.0:
+        # nothing actually trimmed — just copy the raw file unchanged
+        # (still re-mux to enforce pcm_s16le and shed any odd metadata)
+        cmd = [
+            str(FFMPEG), "-hide_banner", "-loglevel", "error", "-y",
+            "-i", str(audio_in),
+            "-c:a", "pcm_s16le",
+            str(audio_out),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return
+
+    # Build a filter graph that trims and concatenates each kept range.
+    parts = []
+    inputs = []
+    for i, seg in enumerate(kept):
+        parts.append(
+            f"[0:a]atrim=start={seg.src_start:.6f}:end={seg.src_end:.6f},"
+            f"asetpts=PTS-STARTPTS[a{i}]"
+        )
+        inputs.append(f"[a{i}]")
+    filter_complex = ";".join(parts) + ";" + "".join(inputs) + \
+                     f"concat=n={len(kept)}:v=0:a=1[out]"
     cmd = [
-        sys.executable, "-m", "auto_editor",
-        str(audio_in),
-        "--margin", margin,
-        "-o", str(audio_out),
-        "--no-open",
+        str(FFMPEG), "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(audio_in),
+        "-filter_complex", filter_complex,
+        "-map", "[out]",
+        "-c:a", "pcm_s16le",
+        str(audio_out),
     ]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
@@ -124,8 +156,8 @@ def remove_silences(audio_in: Path, words: list[TimedWord], work_dir: Path,
     audio_out   = work_dir / "speech_trimmed.wav"
 
     _auto_editor_timeline(audio_in, timeline_v3, margin)
-    _auto_editor_render(audio_in, audio_out, margin)
     _, kept = _parse_timeline(timeline_v3)
+    _ffmpeg_cut_lossless(audio_in, audio_out, kept)
 
     new_words: list[TimedWord] = []
     for w in words:
